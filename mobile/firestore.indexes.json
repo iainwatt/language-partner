@@ -1,0 +1,8 @@
+{
+  "indexes": [],
+  "fieldOverrides": [
+    { "collectionGroup": "dictionary", "fieldPath": "phrase", "indexes": [] },
+    { "collectionGroup": "dictionary", "fieldPath": "meaning", "indexes": [] },
+    { "collectionGroup": "dictionary", "fieldPath": "history", "indexes": [] }
+  ]
+}

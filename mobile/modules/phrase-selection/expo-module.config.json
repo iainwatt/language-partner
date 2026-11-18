@@ -1,0 +1,7 @@
+{
+  "platforms": ["apple", "android"],
+  "apple": { "modules": ["PhraseSelectionModule"] },
+  "android": {
+    "modules": ["expo.modules.phraseselection.PhraseSelectionModule"]
+  }
+}
