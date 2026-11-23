@@ -1,6 +1,5 @@
 import { roleplayPracticeSchema } from "./roleplayTypes";
 import { z } from "zod";
-import { correctionSchema } from "./corrections";
 
 export const languages = [
   { code: "en-US", name: "English", short: "EN" },
@@ -48,8 +47,11 @@ export const messageSchema = z.object({
   final: z.boolean(),
   createdAt: z.string(),
   provider: providerSchema.optional(),
-  // On a partner's message: what it logged about the learner's turn before it.
-  corrections: z.array(correctionSchema).max(8).optional(),
+  // On a partner's message: its corrections of the learner's turn, shown as a block.
+  corrections: z.string().max(4000).optional(),
+  // On a partner's message: what the learner meant in the turn it answers, in
+  // their own language. Never shown; the conversation script is written from these.
+  meant: z.string().max(2000).optional(),
 });
 export type Message = z.infer<typeof messageSchema>;
 export const documentIdSchema = z.string().regex(/^[a-zA-Z0-9_-]{1,128}$/);
@@ -59,6 +61,17 @@ export const savedConversationSchema = z.object({
   description: z.string().max(2000),
   summary: z.string().max(6000),
   summarySourceMessageId: z.string().max(128).default(""),
+  // Step one: what the learner said, as one blurb in their own language, and
+  // the message it was written up to. Step two: that outline as a script to
+  // read aloud in the language being learned.
+  outline: z.string().max(12000).optional(),
+  outlineSourceMessageId: z.string().max(128).optional(),
+  // What the learner said, listed point by point: the source for later changes to the outline.
+  outlinePoints: z.string().max(20000).optional(),
+  script: z.string().max(16000).optional(),
+  // What the script's saved words mean where they stand, for practising with
+  // them shown in the learner's own language. Filled the first time it is needed.
+  scriptMeanings: z.array(z.object({ text: z.string().max(300), meaning: z.string().max(300) })).max(200).optional(),
   native: z.string(),
   target: z.string(),
   createdAt: z.string(),
@@ -90,6 +103,8 @@ export const conversationSchema = z.object({
   practiceOf: documentIdSchema.optional(),
   grammar: conversationGrammarSchema.optional(),
   roleplay: roleplayPracticeSchema.optional(),
+  // The one discussion of a "Watch and repeat" video. Its words are those saved from the video.
+  video: z.object({ youtubeId: z.string().regex(/^[A-Za-z0-9_-]{6,20}$/), title: z.string().max(200) }).optional(),
 });
 export type Conversation = z.infer<typeof conversationSchema>;
 export const gradeSchema = z.enum(["again", "hard", "good", "easy"]);
@@ -112,6 +127,11 @@ export const entrySchema = z.object({
   start: z.number().int().optional(),
   end: z.number().int().optional(),
   conversationIds: z.array(documentIdSchema).max(500).default([]),
+  // A more natural way to say the phrase, found by a review after it was
+  // saved. It waits here until the learner accepts or dismisses it.
+  suggestion: z.object({ phrase: z.string().trim().min(1).max(600), reason: z.string().max(600) }).optional(),
+  // Set once the phrase has been through that review, so it is not checked twice.
+  reviewed: z.boolean().optional(),
   createdAt: z.string(),
   due: date,
   interval: z.number().int().min(0),
@@ -140,6 +160,11 @@ export const settingsSchema = z.object({
   partnerModels: z.partialRecord(providerSchema, z.string()).optional(),
   // The learner's own choice per practice language; absent means the script-based default.
   translateReplies: z.record(z.string(), z.boolean()).optional(),
+  // Whether the learner speaks as a man or a woman, which many languages need
+  // to get first-person forms right. The partner asks in the first chat.
+  speaker: z.enum(["male", "female"]).optional(),
+  // Words a minute at which a script scrolls in practice mode.
+  readingSpeed: z.number().int().min(20).max(300).optional(),
 });
 export type Settings = z.infer<typeof settingsSchema>;
 const writingSystems: Record<string, string> = { ru: "cyrillic", ja: "japanese" };
@@ -281,6 +306,12 @@ export function saveEntry(
   });
   return { entries: [entry, ...entries], entry, duplicate: false };
 }
+// Phrases still waiting for the naturalness review, oldest first.
+export const unreviewed = (entries: Entry[]) =>
+  entries.filter((entry) => !entry.reviewed && !entry.suggestion).sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+// Record a review's result on its entry: checked, with a suggestion if there was one.
+export const markReviewed = (entries: Entry[], id: string, suggestion?: Entry["suggestion"]) =>
+  entries.map((entry) => (entry.id === id ? entrySchema.parse({ ...entry, reviewed: true, ...(suggestion ? { suggestion } : {}) }) : entry));
 export function linkEntry(entry: Entry, conversationId: string): Entry {
   const ids = new Set([
     ...entry.conversationIds,

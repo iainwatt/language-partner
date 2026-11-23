@@ -78,3 +78,20 @@ test("each practice language shows only its own conversations, words and saved c
   const empty = languageView({ ...snapshot, conversations: [], settings: { ...snapshot.settings, target: "fr-FR" } });
   assert.deepEqual([empty.conversations, empty.entries, empty.savedConversations], [[], [], []]);
 });
+
+test("opening the app starts on an empty chat in the same language, reusing one if it exists", async () => {
+  const { freshStart } = await import("../src/core/conversations");
+  const { initialSnapshot, makeConversation } = await import("../src/core/domain");
+  const message = { id: "m1", role: "user" as const, text: "Привет", final: true, createdAt: "2026-11-20T10:00:00.000Z" };
+  const talked = { ...makeConversation("en-US", "ru-RU", false), id: "talked", messages: [message] };
+  const spanish = { ...makeConversation("en-US", "es-ES", false), id: "spanish" };
+  const base = { ...initialSnapshot(false), conversations: [talked, spanish], activeConversationId: "talked" };
+
+  const started = freshStart(base);
+  assert.equal(started.conversations.length, 3);
+  const opened = started.conversations.find((chat) => chat.id === started.activeConversationId)!;
+  assert.deepEqual([opened.target, opened.messages.length], ["ru-RU", 0]);
+  // Opening again does not add another empty chat.
+  assert.equal(freshStart({ ...started, activeConversationId: "talked" }).activeConversationId, opened.id);
+  assert.equal(freshStart(started), started);
+});

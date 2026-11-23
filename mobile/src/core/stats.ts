@@ -135,3 +135,11 @@ export function talkTimeByLanguage(stats: Stats) {
   const tracked = languages.reduce((sum, { ms }) => sum + ms, 0);
   return { languages, earlier: Math.max(0, stats.talkTimeMs - tracked) };
 }
+
+// Count the time recorded before languages were tracked as one language's.
+export function assignEarlierTalkTime(stats: Stats, language: string): Stats {
+  const { earlier } = talkTimeByLanguage(stats);
+  if (!earlier) return stats;
+  const byLanguage = stats.talkTimeByLanguage ?? {};
+  return { ...stats, talkTimeByLanguage: { ...byLanguage, [language]: (byLanguage[language] ?? 0) + earlier } };
+}

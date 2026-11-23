@@ -8,7 +8,12 @@
     "userInterfaceStyle": "light",
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.iainwatt.languagepartner"
+      "bundleIdentifier": "com.iainwatt.languagepartner",
+      "infoPlist": {
+        "NSSpeechRecognitionUsageDescription": "Allow Language Partner to transcribe your speech in your selected language.",
+        "NSMicrophoneUsageDescription": "Allow Language Partner to hear your conversation and spoken translations.",
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "android": {
       "adaptiveIcon": {
@@ -28,6 +33,21 @@
       "expo-sqlite",
       "expo-secure-store",
       [
+        "expo-camera",
+        {
+          "cameraPermission": "Allow Language Partner to use the camera so you can record yourself reading your script.",
+          "microphonePermission": "Allow Language Partner to hear your conversation and spoken translations.",
+          "recordAudioAndroid": true
+        }
+      ],
+      [
+        "expo-media-library",
+        {
+          "photosPermission": "Allow Language Partner to save your recordings to your Photos.",
+          "savePhotosPermission": "Allow Language Partner to save your recordings to your Photos."
+        }
+      ],
+      [
         "expo-speech-recognition",
         {
           "microphonePermission": "Allow Language Partner to hear your conversation and spoken translations.",
@@ -35,6 +55,11 @@
         }
       ]
     ],
-    "scheme": "languagepartner"
+    "scheme": "languagepartner",
+    "extra": {
+      "eas": {
+        "projectId": "66ec651a-16c6-483a-9170-d19b8583b734"
+      }
+    }
   }
 }

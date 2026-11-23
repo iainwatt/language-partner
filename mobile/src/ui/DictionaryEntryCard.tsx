@@ -10,12 +10,15 @@ export function DictionaryEntryCard({
   onPronounce,
   onEdit,
   onContext,
+  onSuggestion,
 }: {
   entry: Entry;
   contexts: SavedConversation[];
   onPronounce: () => void;
   onEdit: () => void;
   onContext: (context: SavedConversation) => void;
+  // Accept the more natural phrase the review suggested, or keep the original.
+  onSuggestion: (accept: boolean) => void;
 }) {
   return (
     <View style={[s.card, styles.card]}>
@@ -30,6 +33,17 @@ export function DictionaryEntryCard({
           <Text style={styles.phrase}>{entry.phrase}</Text>
           <Label muted style={styles.meaning}>{entry.meaning}</Label>
         </Pressable>
+        {entry.suggestion && (
+          <View style={styles.suggestion}>
+            <Label muted style={{ fontSize: 12 }}>More natural</Label>
+            <Text style={styles.suggested}>{entry.suggestion.phrase}</Text>
+            {!!entry.suggestion.reason && <Label muted style={{ fontSize: 13, lineHeight: 18 }}>{entry.suggestion.reason}</Label>}
+            <View style={s.wrap}>
+              <Button small primary onPress={() => onSuggestion(true)}>Use this</Button>
+              <Button small onPress={() => onSuggestion(false)}>Keep mine</Button>
+            </View>
+          </View>
+        )}
         {contexts.map((context) => (
           <Pressable
             key={context.id}
@@ -58,6 +72,8 @@ const styles = StyleSheet.create({
   phrase: { fontSize: 18, lineHeight: 24, color: c.ink, fontWeight: "500" },
   meaning: { lineHeight: 20 },
   context: { minHeight: 36, justifyContent: "center" },
+  suggestion: { gap: 4, marginVertical: 4, paddingLeft: 10, borderLeftWidth: 2, borderLeftColor: c.accent },
+  suggested: { fontSize: 17, lineHeight: 23, color: c.ink, fontWeight: "500" },
   contextLabel: { color: c.accentText, fontSize: 12, lineHeight: 18 },
   action: { width: 44, minHeight: 44, paddingHorizontal: 10, paddingVertical: 10, borderWidth: 0, backgroundColor: "transparent" },
 });

@@ -5,7 +5,7 @@ public class PhraseSelectionModule: Module {
   public func definition() -> ModuleDefinition {
     Name("PhraseSelection")
     View(PhraseSelectionView.self) {
-      Events("onSavePhrase", "onContentHeight")
+      Events("onSavePhrase", "onContentHeight", "onSelecting", "onTap")
       Prop("text") { (view: PhraseSelectionView, text: String) in
         view.setText(text)
       }
@@ -23,8 +23,28 @@ public class PhraseSelectionModule: Module {
       Prop("accentRanges") { (view: PhraseSelectionView, ranges: String) in
         view.setAccentRanges(ranges)
       }
+      // "#RRGGBB" colours for text on another background; empty keeps the defaults.
+      Prop("textColor") { (view: PhraseSelectionView, color: String) in
+        view.textColor = hexColor(color)
+        view.recolor()
+      }
+      Prop("accentColor") { (view: PhraseSelectionView, color: String) in
+        view.accentColor = hexColor(color)
+        view.recolor()
+      }
     }
   }
+}
+
+private func hexColor(_ text: String) -> UIColor? {
+  let hex = text.hasPrefix("#") ? String(text.dropFirst()) : text
+  guard hex.count == 6, let value = UInt32(hex, radix: 16) else { return nil }
+  return UIColor(
+    red: CGFloat((value >> 16) & 0xFF) / 255,
+    green: CGFloat((value >> 8) & 0xFF) / 255,
+    blue: CGFloat(value & 0xFF) / 255,
+    alpha: 1
+  )
 }
 
 // iOS 15 uses UIMenuController; iOS 16+ uses the UITextView delegate menu.
@@ -64,10 +84,16 @@ final class PhraseTextView: UITextView {
   }
 }
 
-final class PhraseSelectionView: ExpoView, UITextViewDelegate {
+final class PhraseSelectionView: ExpoView, UITextViewDelegate, UIGestureRecognizerDelegate {
   let textView = PhraseTextView()
   let onSavePhrase = EventDispatcher()
   let onContentHeight = EventDispatcher()
+  let onSelecting = EventDispatcher()
+  let onTap = EventDispatcher()
+  private var selectionEnded = Date.distantPast
+  var textColor: UIColor?
+  var accentColor: UIColor?
+  private var selecting = false
   var fontScale: CGFloat = 1
   var serif = false
   private var sourceText = ""
@@ -85,6 +111,11 @@ final class PhraseSelectionView: ExpoView, UITextViewDelegate {
     textView.tintColor = UIColor(red: 82/255, green: 119/255, blue: 109/255, alpha: 1)
     textView.delegate = self
     textView.savePhrase = { [weak self] in self?.saveSelection() }
+    // A short tap is passed on; a long press still starts a selection.
+    let tap = UITapGestureRecognizer(target: self, action: #selector(tapped))
+    tap.delegate = self
+    tap.cancelsTouchesInView = false
+    textView.addGestureRecognizer(tap)
     addSubview(textView)
   }
 
@@ -109,6 +140,21 @@ final class PhraseSelectionView: ExpoView, UITextViewDelegate {
     updateText()
   }
 
+  // A change of colour alone is made in place. Replacing the whole text would
+  // cancel a press or a selection the learner has under way.
+  func recolor() {
+    let storage = textView.textStorage
+    guard storage.length > 0, storage.string == sourceText else { return updateText() }
+    let base = textColor ?? UIColor(red: 41/255, green: 45/255, blue: 42/255, alpha: 1)
+    let accent = accentColor ?? UIColor(red: 168/255, green: 68/255, blue: 61/255, alpha: 1)
+    storage.beginEditing()
+    storage.addAttribute(.foregroundColor, value: base, range: NSRange(location: 0, length: storage.length))
+    for range in accentRanges where NSMaxRange(range) <= storage.length {
+      storage.addAttribute(.foregroundColor, value: accent, range: range)
+    }
+    storage.endEditing()
+  }
+
   func updateText() {
     let paragraph = NSMutableParagraphStyle()
     paragraph.minimumLineHeight = (serif ? 28 : 25) * fontScale
@@ -117,11 +163,11 @@ final class PhraseSelectionView: ExpoView, UITextViewDelegate {
     let font = serif ? (UIFont(name: "Georgia", size: size) ?? UIFont.systemFont(ofSize: size)) : UIFont.systemFont(ofSize: size)
     let attributed = NSMutableAttributedString(string: sourceText, attributes: [
       .font: font,
-      .foregroundColor: UIColor(red: 41/255, green: 45/255, blue: 42/255, alpha: 1),
+      .foregroundColor: textColor ?? UIColor(red: 41/255, green: 45/255, blue: 42/255, alpha: 1),
       .paragraphStyle: paragraph
     ])
     let sourceLength = (sourceText as NSString).length
-    let accentColor = UIColor(red: 168/255, green: 68/255, blue: 61/255, alpha: 1)
+    let accentColor = self.accentColor ?? UIColor(red: 168/255, green: 68/255, blue: 61/255, alpha: 1)
     for range in accentRanges where NSMaxRange(range) <= sourceLength {
       attributed.addAttributes([
         .foregroundColor: accentColor,
@@ -145,6 +191,27 @@ final class PhraseSelectionView: ExpoView, UITextViewDelegate {
       reportedHeight = height
       onContentHeight(["height": height])
     }
+  }
+
+  func gestureRecognizer(
+    _ gestureRecognizer: UIGestureRecognizer,
+    shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer
+  ) -> Bool { true }
+
+  // A tap that only dismisses a selection is not passed on.
+  @objc private func tapped() {
+    guard !selecting, textView.selectedRange.length == 0,
+      Date().timeIntervalSince(selectionEnded) > 0.6 else { return }
+    onTap([:])
+  }
+
+  // Tell the screen when words are being highlighted, so it can hold still.
+  func textViewDidChangeSelection(_ textView: UITextView) {
+    let active = textView.selectedRange.length > 0
+    guard active != selecting else { return }
+    selecting = active
+    if !active { selectionEnded = Date() }
+    onSelecting(["active": active])
   }
 
   func textView(

@@ -8,6 +8,9 @@ import {
   type TalkTimeRange,
 } from "../core/stats";
 import { c, fonts, Label, s } from "./components";
+import { readingTotals, type Reading } from "../core/reading";
+import { wordLevelNames } from "../core/practice";
+import { practiceLevel, practiceTotals, type Activity } from "../core/activity";
 
 function formatDuration(ms: number) {
   const minutes = Math.floor(ms / 60000);
@@ -16,6 +19,80 @@ function formatDuration(ms: number) {
   const rest = minutes % 60;
   if (!hours) return `${minutes}m`;
   return rest ? `${hours}h ${rest}m` : `${hours}h`;
+}
+
+function Rows({ title, rows }: { title: string; rows: [string, string][] }) {
+  return (
+    <View style={[s.card, styles.languageCard]}>
+      <Text style={styles.chartTitle}>{title}</Text>
+      {rows.map(([label, value]) => (
+        <View key={label} style={styles.languageRow}>
+          <Label style={{ flex: 1 }}>{label}</Label>
+          <Label>{value}</Label>
+        </View>
+      ))}
+    </View>
+  );
+}
+function Progress({ label, share, done }: { label: string; share: number; done: string }) {
+  return (
+    <View style={{ gap: 5 }}>
+      <View style={styles.languageRow}>
+        <Label style={{ flex: 1 }}>{label}</Label>
+        <Label muted>{done}</Label>
+      </View>
+      <View style={styles.track}><View style={[styles.fill, { width: `${Math.round(share * 100)}%` }]} /></View>
+    </View>
+  );
+}
+// The learner's level, earned by live reading: so many minutes of videos and
+// as many of their own scripts, finished readings only.
+export function LevelCard({ readings }: { readings: Reading[] }) {
+  const progress = practiceLevel(readings);
+  const minutes = (ms: number) => `${Math.floor(ms / 60000)} of ${progress.next?.minutes} min`;
+  return (
+    <View style={[s.card, styles.languageCard]}>
+      <Text style={styles.chartTitle}>{progress.level ? `Level ${progress.level}` : "Not on a level yet"}</Text>
+      {progress.next ? (
+        <>
+          <Label muted>
+            Level {progress.next.level}: finish {progress.next.minutes} minutes of live reading from videos, and {progress.next.minutes} from your own scripts. Short ones add up.
+          </Label>
+          <Progress label="Videos" share={progress.next.video} done={minutes(progress.videoMs)} />
+          <Progress label="Your scripts" share={progress.next.script} done={minutes(progress.scriptMs)} />
+        </>
+      ) : (
+        <Label muted>You have reached the top level.</Label>
+      )}
+    </View>
+  );
+}
+// What the learner has done with videos and with their own conversations,
+// besides talking: watching, live reading and recording.
+export function PracticeOverview({ readings, activity }: { readings: Reading[]; activity: Activity[] }) {
+  const totals = practiceTotals(readings, activity);
+  const accuracy = readingTotals(readings).levels.filter((item) => item.accuracy !== undefined);
+  return (
+    <>
+      <Rows title="Videos" rows={[
+        ["Time watching", formatDuration(totals.video.watchMs)],
+        ["Time live reading", formatDuration(totals.video.readingMs)],
+        ["Live readings completed", `${totals.video.completed} of ${totals.video.readings}`],
+      ]} />
+      <Rows title="Your conversations" rows={[
+        ["Time live reading scripts", formatDuration(totals.lesson.readingMs)],
+        ["Live readings completed", `${totals.lesson.completed} of ${totals.lesson.readings}`],
+        ["Time recording", formatDuration(totals.recordingMs)],
+        ["Recordings", String(totals.recordings)],
+      ]} />
+      {(totals.wordsSpoken > 0 || accuracy.length > 0) && (
+        <Rows title="Live reading" rows={[
+          ["Words spoken", totals.wordsSpoken.toLocaleString()],
+          ...accuracy.map((item): [string, string] => [`Accuracy · ${wordLevelNames[item.level]}`, `${item.accuracy}% over ${item.attempts}`]),
+        ]} />
+      )}
+    </>
+  );
 }
 
 const ranges: { key: TalkTimeRange; label: string }[] = [
@@ -27,9 +104,14 @@ const ranges: { key: TalkTimeRange; label: string }[] = [
 export function TalkTimeOverview({
   stats,
   today,
+  language,
+  onAssignEarlier,
 }: {
   stats: Stats;
   today: string;
+  // The language being practised, which earlier untracked time can be counted as.
+  language?: string;
+  onAssignEarlier?: () => void;
 }) {
   const [range, setRange] = useState<TalkTimeRange>("daily");
   const summary = talkTimeSummary(stats, today);
@@ -55,7 +137,7 @@ export function TalkTimeOverview({
           </View>
         ))}
       </View>
-      {byLanguage.languages.length > 0 && (
+      {(byLanguage.languages.length > 0 || byLanguage.earlier > 0) && (
         <View style={[s.card, styles.languageCard]}>
           <Text style={styles.chartTitle}>By language</Text>
           {byLanguage.languages.map(({ language, ms }) => (
@@ -69,6 +151,11 @@ export function TalkTimeOverview({
               <Label muted style={{ flex: 1 }}>Before languages were tracked</Label>
               <Label muted>{formatDuration(byLanguage.earlier)}</Label>
             </View>
+          )}
+          {byLanguage.earlier > 0 && !!language && !!onAssignEarlier && (
+            <Pressable accessibilityRole="button" onPress={onAssignEarlier} style={({ pressed }) => pressed && { opacity: 0.6 }}>
+              <Label style={{ color: c.accent, fontWeight: "600" }}>Count that time as {languageName(language)}</Label>
+            </Pressable>
           )}
           <View style={[styles.languageRow, styles.languageTotal]}>
             <Label style={{ flex: 1, fontWeight: "600" }}>Total</Label>
@@ -165,6 +252,8 @@ const styles = StyleSheet.create({
   },
   summaryLabel: { fontSize: 12 },
   languageCard: { padding: 16, gap: 10 },
+  track: { height: 8, borderRadius: 4, backgroundColor: c.pale, overflow: "hidden" },
+  fill: { height: 8, borderRadius: 4, backgroundColor: c.accent },
   languageRow: { flexDirection: "row", alignItems: "center", gap: 10 },
   languageTotal: {
     paddingTop: 10,

@@ -70,3 +70,13 @@ test("talk time is totalled overall and per practice language", () => {
   });
   assert.deepEqual(talkTimeByLanguage({ talkTimeMs: 0, talkTimeByDay: {} }), { languages: [], earlier: 0 });
 });
+
+test("time from before languages were tracked can be counted as one language", async () => {
+  const { assignEarlierTalkTime, talkTimeByLanguage } = await import("../src/core/stats");
+  const stats = { talkTimeMs: 100000, talkTimeByDay: {}, talkTimeByLanguage: { "ru-RU": 30000, "es-ES": 10000 } };
+  const assigned = assignEarlierTalkTime(stats, "ru-RU");
+  assert.deepEqual(assigned.talkTimeByLanguage, { "ru-RU": 90000, "es-ES": 10000 });
+  assert.equal(talkTimeByLanguage(assigned).earlier, 0);
+  assert.equal(assigned.talkTimeMs, 100000);
+  assert.equal(assignEarlierTalkTime(assigned, "ru-RU"), assigned);
+});

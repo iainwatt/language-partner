@@ -23,7 +23,7 @@ class PhraseSelectionModule : Module() {
   override fun definition() = ModuleDefinition {
     Name("PhraseSelection")
     View(PhraseSelectionView::class) {
-      Events("onSavePhrase", "onContentHeight")
+      Events("onSavePhrase", "onContentHeight", "onSelecting", "onTap")
       Prop("text") { view: PhraseSelectionView, text: String -> view.setText(text) }
       Prop("selectionEnabled") { view: PhraseSelectionView, enabled: Boolean ->
         view.textView.setTextIsSelectable(enabled)
@@ -31,6 +31,9 @@ class PhraseSelectionModule : Module() {
       Prop("fontScale") { view: PhraseSelectionView, scale: Float -> view.setFontScale(scale) }
       Prop("serif") { view: PhraseSelectionView, serif: Boolean -> view.setSerif(serif) }
       Prop("accentRanges") { view: PhraseSelectionView, ranges: String -> view.setAccentRanges(ranges) }
+      // "#RRGGBB" colours for text on another background; empty keeps the defaults.
+      Prop("textColor") { view: PhraseSelectionView, color: String -> view.setTextColor(color) }
+      Prop("accentColor") { view: PhraseSelectionView, color: String -> view.setAccentColor(color) }
     }
   }
 }
@@ -39,6 +42,10 @@ class PhraseSelectionView(context: Context, appContext: AppContext) : ExpoView(c
   override val shouldUseAndroidLayout = true
   private val onSavePhrase by EventDispatcher()
   private val onContentHeight by EventDispatcher()
+  private val onSelecting by EventDispatcher()
+  private val onTap by EventDispatcher()
+  private var selectionEnded = 0L
+  private var accentColor = Color.rgb(168, 68, 61)
   private var reportedHeight = 0
   private val saveId = 0x4C50
   private var usesSerif = false
@@ -57,10 +64,14 @@ class PhraseSelectionView(context: Context, appContext: AppContext) : ExpoView(c
     textView.customSelectionActionModeCallback = object : ActionMode.Callback {
       override fun onCreateActionMode(mode: ActionMode, menu: Menu): Boolean {
         menu.add(Menu.NONE, saveId, 0, "Save phrase").setShowAsAction(MenuItem.SHOW_AS_ACTION_ALWAYS)
+        onSelecting(mapOf("active" to true))
         return true
       }
       override fun onPrepareActionMode(mode: ActionMode, menu: Menu): Boolean = false
-      override fun onDestroyActionMode(mode: ActionMode) {}
+      override fun onDestroyActionMode(mode: ActionMode) {
+        selectionEnded = System.currentTimeMillis()
+        onSelecting(mapOf("active" to false))
+      }
       override fun onActionItemClicked(mode: ActionMode, item: MenuItem): Boolean {
         if (item.itemId != saveId) return false
         val start = minOf(textView.selectionStart, textView.selectionEnd)
@@ -78,12 +89,28 @@ class PhraseSelectionView(context: Context, appContext: AppContext) : ExpoView(c
         return true
       }
     }
+    // A short tap is passed on; a long press still starts a selection.
+    textView.setOnClickListener {
+      if (!textView.hasSelection() && System.currentTimeMillis() - selectionEnded > 600) onTap(mapOf<String, Any>())
+    }
     addView(textView, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
   }
 
   fun setText(text: String) {
     if (sourceText == text) return
     sourceText = text
+    updateText()
+  }
+
+  private fun parsed(color: String, fallback: Int) =
+    try { if (color.isEmpty()) fallback else Color.parseColor(color) } catch (_: Exception) { fallback }
+
+  fun setTextColor(color: String) {
+    textView.setTextColor(parsed(color, Color.rgb(41, 45, 42)))
+  }
+
+  fun setAccentColor(color: String) {
+    accentColor = parsed(color, Color.rgb(168, 68, 61))
     updateText()
   }
 
@@ -107,7 +134,7 @@ class PhraseSelectionView(context: Context, appContext: AppContext) : ExpoView(c
     accentRanges.forEach { (start, end) ->
       if (end <= sourceText.length) {
         styled.setSpan(
-          ForegroundColorSpan(Color.rgb(168, 68, 61)),
+          ForegroundColorSpan(accentColor),
           start,
           end,
           Spannable.SPAN_EXCLUSIVE_EXCLUSIVE

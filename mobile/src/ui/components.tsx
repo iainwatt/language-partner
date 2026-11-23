@@ -1,4 +1,4 @@
-import React from "react";
+import React, { createContext, useState } from "react";
 import {
   Modal,
   KeyboardAvoidingView,
@@ -139,6 +139,9 @@ export function Field(props: TextInputProps) {
     />
   );
 }
+// Lets something deep inside a sheet pin a panel to the sheet's bottom edge,
+// where it stays in view however far the content is scrolled.
+export const SheetFooter = createContext<(panel: React.ReactNode) => void>(() => {});
 export function Sheet({
   title,
   subtitle,
@@ -158,6 +161,7 @@ export function Sheet({
   displayTitle?: boolean;
   compact?: boolean;
 }) {
+  const [footer, setFooter] = useState<React.ReactNode>(null);
   return (
     <Modal
       transparent
@@ -223,15 +227,18 @@ export function Sheet({
             />
           </View>
           <ScrollView
+            style={{ flexShrink: 1 }}
             keyboardShouldPersistTaps="handled"
             contentContainerStyle={{
               gap: compact ? 6 : 16,
               paddingTop: compact ? 4 : 18,
-              paddingBottom: compact ? 4 : 12,
+              // Keeps the last control clear of the bottom edge in every sheet.
+              paddingBottom: 28,
             }}
           >
-            {children}
+            <SheetFooter.Provider value={setFooter}>{children}</SheetFooter.Provider>
           </ScrollView>
+          {footer && <View style={{ paddingTop: 10, paddingBottom: 30, borderTopWidth: 1, borderColor: c.line }}>{footer}</View>}
         </SafeAreaView>
       </KeyboardAvoidingView>
     </Modal>

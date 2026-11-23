@@ -17,6 +17,7 @@ import { contextEntries } from "../core/practiceContext";
 import { audio } from "../services/nativeAudio";
 import { Button, c, Field, Label, s, Sheet } from "./components";
 import { EntryExample } from "./EntryExample";
+import { ScriptCard, type OutlineChange, type ScriptLookup } from "./ScriptView";
 
 export function SavedConversationSheet({
   context,
@@ -32,6 +33,15 @@ export function SavedConversationSheet({
   onReview,
   onOriginal,
   onLink,
+  scriptStep,
+  chatMovedOn,
+  onOutline,
+  canRestart,
+  onScript,
+  onTranslate,
+  onPractise,
+  onRecord,
+  onRead,
 }: {
   context: SavedConversation;
   entries: Entry[];
@@ -46,6 +56,16 @@ export function SavedConversationSheet({
   onReview: () => void;
   onOriginal?: () => void;
   onLink: (entry: Entry) => Promise<void>;
+  // The script's two steps: which one is running, and how to run each.
+  scriptStep: "outline" | "script" | null;
+  chatMovedOn: boolean;
+  onOutline?: OutlineChange;
+  canRestart: boolean;
+  onScript?: () => Promise<void>;
+  onTranslate?: ScriptLookup;
+  onPractise: (script: string) => void;
+  onRecord: (script: string) => void;
+  onRead: (script: string) => void;
 }) {
   const [draft, setDraft] = useState(context);
   const [editing, setEditing] = useState(isNew);
@@ -226,6 +246,7 @@ export function SavedConversationSheet({
             You’ll see the recap and meanings in {languageName(context.native)},
             with the {languageName(context.target)} answers hidden.
           </Label>
+          <ScriptCard context={context} step={scriptStep} chatMovedOn={chatMovedOn} canRestart={canRestart} onOutline={onOutline} onScript={onScript} onTranslate={onTranslate} onPractise={onPractise} onRecord={onRecord} onRead={onRead} />
           <View style={s.row}>
             <Text style={[s.eyebrow, { flex: 1 }]}>
               {words.length} saved {words.length === 1 ? "phrase" : "phrases"}

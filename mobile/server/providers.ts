@@ -110,7 +110,7 @@ export async function generate(
     method: "POST",
     headers: { "Content-Type": "application/json", ...spec.headers },
     body: JSON.stringify(spec.body),
-    signal: AbortSignal.timeout(55000),
+    signal: AbortSignal.timeout(settings.model === "gpt-5.4" ? 160000 : 55000),
   });
   if (!response.ok) throw await providerRequestError(settings.provider, response);
   const payload = await response.json();

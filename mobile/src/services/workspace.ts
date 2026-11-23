@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { initialSnapshot, snapshotSchema, type Snapshot } from "../core/domain";
+import { freshStart } from "../core/conversations";
 import {
   dictionaryChanges,
   conversationChanges,
@@ -38,7 +39,8 @@ export function useWorkspace(report: (message: string) => void) {
     void (async () => {
       const saved = await repository.load(scope);
       if (!active.current) return;
-      publish({ ...(saved?.snapshot ?? initialSnapshot(!uid)), entries: [] });
+      // A returning learner starts on a clean page; the sample for a guest is left as it is.
+      publish({ ...(saved ? freshStart(saved.snapshot) : initialSnapshot(!uid)), entries: [] });
       if (!uid) return;
       unsubscribeContexts = watchSavedConversations(
         uid,

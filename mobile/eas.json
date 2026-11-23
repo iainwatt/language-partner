@@ -1,7 +1,26 @@
 {
   "build": {
-    "development": { "developmentClient": true, "distribution": "internal" },
-    "preview": { "distribution": "internal" },
-    "production": { "autoIncrement": true }
+    "development": {
+      "developmentClient": true,
+      "distribution": "internal"
+    },
+    "preview": {
+      "distribution": "internal"
+    },
+    "production": {
+      "autoIncrement": true,
+      "env": {
+        "EXPO_PUBLIC_FIREBASE_API_KEY": "AIzaSyAl6eHqbnWfUAWd4KgAV-cgD5muFUkiRww",
+        "EXPO_PUBLIC_FIREBASE_APP_ID": "1:865832576630:web:c10f586650f0f89c7fe157",
+        "EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN": "languagepartner-23507.firebaseapp.com",
+        "EXPO_PUBLIC_FIREBASE_FUNCTIONS_REGION": "europe-west2",
+        "EXPO_PUBLIC_FIREBASE_PROJECT_ID": "languagepartner-23507",
+        "EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID": "865832576630-vbpdrtvds8gtp2o2vlp4grth7nk8v6qb.apps.googleusercontent.com",
+        "EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID": "865832576630-v1fru2hoq88qnrhqv0faslqc5mdoj049.apps.googleusercontent.com"
+      }
+    }
+  },
+  "cli": {
+    "appVersionSource": "remote"
   }
 }

@@ -52,6 +52,10 @@ export async function commitDictionary(
   contexts: ConversationChange[] = [],
 ) {
   if (!changes.length && !contexts.length) return;
+  await commit(uid, (database) => commitWrites(database, uid, changes, contexts));
+}
+// One authenticated Firestore commit for this account's own documents.
+export async function commit(uid: string, build: (database: string) => object[]) {
   const client = account(uid);
   const database = `projects/${client.app.options.projectId}/databases/(default)`;
   const origin = emulatorHost
@@ -59,7 +63,7 @@ export async function commitDictionary(
     : "https://firestore.googleapis.com";
   // Direct authenticated commits have no offline write queue or disk cache.
   // Firebase ID tokens keep these writes subject to Firestore security rules.
-  const writes = commitWrites(database, uid, changes, contexts);
+  const writes = build(database);
   if (writes.length > 400) throw new Error("Save fewer changes at once.");
   {
     const token = await account(uid).auth.currentUser!.getIdToken();

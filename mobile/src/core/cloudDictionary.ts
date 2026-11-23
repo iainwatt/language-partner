@@ -55,6 +55,7 @@ export function dictionaryChanges(
 type FirestoreValue =
   | { stringValue: string }
   | { integerValue: string }
+  | { doubleValue: number }
   | { booleanValue: boolean }
   | { arrayValue: { values: FirestoreValue[] } }
   | { mapValue: { fields: Record<string, FirestoreValue> } };
@@ -62,6 +63,8 @@ export function firestoreValue(value: unknown): FirestoreValue {
   if (typeof value === "string") return { stringValue: value };
   if (typeof value === "number" && Number.isSafeInteger(value))
     return { integerValue: String(value) };
+  // Times within a video are fractions of a second.
+  if (typeof value === "number" && Number.isFinite(value)) return { doubleValue: value };
   if (typeof value === "boolean") return { booleanValue: value };
   if (Array.isArray(value))
     return { arrayValue: { values: value.map(firestoreValue) } };
@@ -98,6 +101,8 @@ export function commitWrites(
           ...new Set([
             ...Object.keys(entry),
             ...(change.exampleChanged === false ? [] : ["example"]),
+            // Named even when absent, so accepting or dismissing a suggestion removes it.
+            "suggestion",
           ]),
         ],
       },

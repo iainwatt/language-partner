@@ -14,6 +14,13 @@ export type SelectableMessageProps = {
   enabled: boolean;
   compact?: boolean;
   accentRanges?: TextAccentRange[];
+  // Colours for text on a dark background, as "#RRGGBB".
+  textColor?: string;
+  accentColor?: string;
+  // Called as the learner starts and stops highlighting words.
+  onSelecting?: (active: boolean) => void;
+  // A short tap on the text. A long press still starts a selection.
+  onPress?: () => void;
   onSelect: (range: PhraseRange) => void;
 };
 type NativeProps = ViewProps & {
@@ -22,6 +29,10 @@ type NativeProps = ViewProps & {
   fontScale: number;
   serif: boolean;
   accentRanges: string;
+  textColor: string;
+  accentColor: string;
+  onSelecting: (event: { nativeEvent: { active: boolean } }) => void;
+  onTap: () => void;
   onSavePhrase: (event: { nativeEvent: PhraseSelectionEvent }) => void;
   onContentHeight: (event: { nativeEvent: { height: number } }) => void;
 };
@@ -32,6 +43,10 @@ export function SelectableMessage({
   enabled,
   compact = false,
   accentRanges = [],
+  textColor = "",
+  accentColor = "",
+  onSelecting,
+  onPress,
   onSelect,
 }: SelectableMessageProps) {
   const { fontScale } = useWindowDimensions();
@@ -45,6 +60,10 @@ export function SelectableMessage({
       fontScale={typographyScale}
       serif={message.role === "assistant"}
       accentRanges={JSON.stringify(accentRanges)}
+      textColor={textColor}
+      accentColor={accentColor}
+      onSelecting={({ nativeEvent }) => onSelecting?.(nativeEvent.active)}
+      onTap={() => onPress?.()}
       onContentHeight={({ nativeEvent }) => {
         if (Number.isFinite(nativeEvent.height) && nativeEvent.height > 0)
           setHeight(Math.ceil(nativeEvent.height));

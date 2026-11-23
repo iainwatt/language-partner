@@ -21,6 +21,8 @@ export function SelectionSheet({
   onClose,
   onSave,
   onCorrect,
+  source = "chat",
+  knownTranslation = "",
   report: reportOutside,
 }: {
   message: Message;
@@ -29,7 +31,12 @@ export function SelectionSheet({
   settings: Settings;
   onClose: () => void;
   onSave: (entry: DictionaryInput) => Promise<void>;
-  onCorrect: (text: string) => Promise<void>;
+  // Absent where the text is not the learner's to correct, as with a video's subtitles.
+  onCorrect?: (text: string) => Promise<void>;
+  // "video": the phrase was highlighted in a video's subtitles, and the whole line is its example.
+  source?: "chat" | "video";
+  // A translation of the suggested example that is already known.
+  knownTranslation?: string;
   report: (text: string) => void;
 }) {
   const [issue, setIssue] = useState("");
@@ -46,16 +53,16 @@ export function SelectionSheet({
   let suggestedExample = "";
   try {
     phrase = selectedSpan(message, range.start, range.end);
-    suggestedExample = selectionExample(message, range);
+    suggestedExample = source === "video" ? (message.text.trim() === phrase.trim() ? "" : message.text.trim().slice(0, 600)) : selectionExample(message, range);
   } catch {}
   const [example, setExample] = useState(suggestedExample);
-  const [exampleTranslation, setExampleTranslation] = useState("");
+  const [exampleTranslation, setExampleTranslation] = useState(knownTranslation);
   const validExample = !example || isSelectionExample(message, range, example);
   useEffect(() => {
     generation.current++;
     setMeaning("");
     setExample(suggestedExample);
-    setExampleTranslation("");
+    setExampleTranslation(knownTranslation);
     setIssue("");
   }, [message.text, range.start, range.end]);
   useEffect(
@@ -113,7 +120,7 @@ export function SelectionSheet({
       subtitle={
         editing
           ? "Edit the message, then highlight your phrase again."
-          : "Your phrase, with a little context from the chat."
+          : source === "video" ? "Your phrase, with the line it came from." : "Your phrase, with a little context from the chat."
       }
       onClose={onClose}
       height="88%"
@@ -134,7 +141,7 @@ export function SelectionSheet({
           <Button
             primary
             onPress={() => {
-              onCorrect(text)
+              onCorrect?.(text)
                 .then(() => {
                   report(
                     "Transcript corrected. Highlight the words you want to save in the updated message.",
@@ -184,7 +191,7 @@ export function SelectionSheet({
           />
           {!!example && (
             <View style={[s.card, { backgroundColor: c.bubble, paddingHorizontal: 12, paddingVertical: 8, gap: 6 }]}>
-              <Label muted style={{ fontSize: 12 }}>EXAMPLE FROM THIS CHAT · shorten it if you like</Label>
+              <Label muted style={{ fontSize: 12 }}>{source === "video" ? "EXAMPLE FROM THIS VIDEO" : "EXAMPLE FROM THIS CHAT"} · shorten it if you like</Label>
               <Field
                 accessibilityLabel="Example from chat"
                 style={{ minHeight: 44, padding: 10 }}
@@ -200,7 +207,7 @@ export function SelectionSheet({
               />
               {!validExample && (
                 <Label style={{ color: c.danger }}>
-                  Keep an exact excerpt from this chat that includes your
+                  Keep an exact excerpt from this {source === "video" ? "line" : "chat"} that includes your
                   highlighted phrase.
                 </Label>
               )}
@@ -232,7 +239,7 @@ export function SelectionSheet({
               disabled={busy}
               onPress={() => setExample(suggestedExample)}
             >
-              Add example from chat
+              {source === "video" ? "Add the line as an example" : "Add example from chat"}
             </Button>
           )}
           <Button
@@ -268,14 +275,16 @@ export function SelectionSheet({
           >
             Save to dictionary
           </Button>
-          <Button
-            small
-            icon={Pencil}
-            disabled={busy}
-            onPress={() => setEditing(true)}
-          >
-            Correct transcript
-          </Button>
+          {!!onCorrect && (
+            <Button
+              small
+              icon={Pencil}
+              disabled={busy}
+              onPress={() => setEditing(true)}
+            >
+              Correct transcript
+            </Button>
+          )}
         </>
       )}
       {!!issue && <Label style={{ color: c.danger }}>{issue}</Label>}

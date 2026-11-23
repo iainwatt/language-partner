@@ -16,6 +16,8 @@ import {
   BookOpen,
   BookOpenText,
   ChartNoAxesColumnIncreasing,
+  ListChecks,
+  MonitorPlay,
   MessagesSquare,
   SquarePen,
   X,
@@ -37,6 +39,8 @@ export function NavigationDrawer({
   grammarSelected,
   roleplaySelected,
   statsSelected,
+  issuesSelected,
+  videosSelected,
   savedDataStatus,
   onClose,
   onNewChat,
@@ -45,6 +49,8 @@ export function NavigationDrawer({
   onGrammar,
   onRoleplay,
   onStats,
+  onIssues,
+  onVideos,
   onConversation,
 }: {
   conversations: Conversation[];
@@ -55,6 +61,8 @@ export function NavigationDrawer({
   grammarSelected: boolean;
   roleplaySelected: boolean;
   statsSelected: boolean;
+  issuesSelected: boolean;
+  videosSelected: boolean;
   savedDataStatus?: { loaded: boolean };
   onClose: () => void;
   onNewChat: () => void;
@@ -63,6 +71,8 @@ export function NavigationDrawer({
   onGrammar: () => void;
   onRoleplay: () => void;
   onStats: () => void;
+  onIssues: () => void;
+  onVideos: () => void;
   onConversation: (id: string) => void;
 }) {
   const { width } = useWindowDimensions();
@@ -218,6 +228,26 @@ export function NavigationDrawer({
               >
                 <BookOpenText color={c.accent} size={20} strokeWidth={1.8} />
                 <Text style={styles.itemText}>Grammar</Text>
+              </Pressable>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Watch and repeat"
+                accessibilityState={{ selected: videosSelected }}
+                onPress={() => close(onVideos)}
+                style={({ pressed }) => [styles.item, (videosSelected || pressed) && styles.selected]}
+              >
+                <MonitorPlay color={c.accent} size={20} strokeWidth={1.8} />
+                <Text style={styles.itemText}>Watch and repeat</Text>
+              </Pressable>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Things to work on"
+                accessibilityState={{ selected: issuesSelected }}
+                onPress={() => close(onIssues)}
+                style={({ pressed }) => [styles.item, (issuesSelected || pressed) && styles.selected]}
+              >
+                <ListChecks color={c.accent} size={20} strokeWidth={1.8} />
+                <Text style={styles.itemText}>Things to work on</Text>
               </Pressable>
               <Pressable
                 accessibilityRole="button"

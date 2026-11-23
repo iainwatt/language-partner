@@ -1,6 +1,6 @@
 import { saveFeedback } from "./feedback";
 import { feedbackRequestSchema } from "../src/core/feedback";
-import { managedPartner } from "../src/core/managedAi";
+import { managedModel, managedPartner } from "../src/core/managedAi";
 import { initializeApp } from "firebase-admin/app";
 import { getFirestore } from "firebase-admin/firestore";
 import {
@@ -21,6 +21,8 @@ import { configured, type UsageObservation } from "./providers";
 import { beginUsage, finishUsage, usageOverview } from "./usage";
 import { error as logError } from "firebase-functions/logger";
 import { ProviderRequestError } from "./providerErrors";
+import { mistakeDocuments } from "./mistakes";
+import { transcriptForPartner, videoSchema } from "../src/core/videos";
 import { updateConversationAccess } from "./conversationAccess";
 import { z } from "zod";
 export { refreshSubscription, revenuecatWebhook } from "./subscriptions";
@@ -52,7 +54,8 @@ export const llm = onCall(
   {
     region: "europe-west2",
     secrets: [secrets],
-    timeoutSeconds: 65,
+    // Room for the larger model to write a long summary or script in one call.
+    timeoutSeconds: 180,
     maxInstances: 2,
     memory: "256MiB",
     invoker: "public",
@@ -76,7 +79,7 @@ export const llm = onCall(
       );
     const rawInput = parsed.data;
     const input = "settings" in rawInput
-      ? { ...rawInput, settings: { ...rawInput.settings, ...managedPartner, mode: "api" as const } }
+      ? { ...rawInput, settings: { ...rawInput.settings, ...managedModel(rawInput.action, "step" in rawInput ? rawInput.step : undefined), mode: "api" as const } }
       : rawInput;
     // Always scoped to the authenticated UID; no client-supplied account ID or
     // monetary values are accepted. Usage does not consume the AI allowance.
@@ -161,7 +164,36 @@ export const llm = onCall(
     let failed = false;
     try {
       eventId = await beginUsage(request.auth.uid, selection.provider, selection.model, input.action, input.trackPractice === true);
-      const result = await executeLlm(input, keys, fetch, (value) => { observation = value; });
+      // A discussion of a video: the transcript comes from the library, never
+      // from the app. Without it the discussion goes ahead on the title alone.
+      if (input.action === "generate" && input.video) {
+        let transcript: string | undefined;
+        try {
+          // The library first, then the learner's own saved videos.
+          for (const path of [`videos/${input.settings.target}/items/${input.video.youtubeId}`, `users/${request.auth.uid}/videos/${input.video.youtubeId}`]) {
+            const found = await getFirestore().doc(path).get();
+            const video = videoSchema.safeParse({ ...found.data(), id: found.id });
+            if (video.success && video.data.lines.length) { transcript = transcriptForPartner(video.data.lines); break; }
+          }
+        } catch {
+          logError("Could not read a video's transcript", { video: input.video.youtubeId });
+        }
+        const { transcript: _supplied, ...rest } = input.video;
+        input.video = { ...rest, ...(transcript ? { transcript } : {}) };
+      }
+      const { fixes, natural, ...result } = { fixes: undefined, natural: undefined, ...(await executeLlm(input, keys, fetch, (value) => { observation = value; })) };
+      if (fixes && input.action === "generate") {
+        // Losing a log entry must never cost the learner their reply.
+        try {
+          const batch = getFirestore().batch();
+          const sentence = input.messages.findLast((message) => message.role === "user")?.text ?? "";
+          for (const mistake of mistakeDocuments(fixes, { sentence, natural, native: input.settings.native, target: input.settings.target }))
+            batch.set(getFirestore().collection(`users/${request.auth.uid}/mistakes`).doc(), mistake);
+          await batch.commit();
+        } catch {
+          logError("Could not save logged mistakes", { eventId });
+        }
+      }
       // Only a successful conversation reply starts the clock. Connection tests,
       // failed providers, translations, and summaries don't start a session.
       try {

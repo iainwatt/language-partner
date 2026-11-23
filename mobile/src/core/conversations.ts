@@ -72,3 +72,19 @@ export function languageView(snapshot: Snapshot): Snapshot {
     savedConversations: snapshot.savedConversations.filter((context) => context.target === target),
   };
 }
+
+// Opening the app starts on a clean page, not in the middle of whichever
+// conversation was open last: an empty ordinary chat in the same languages.
+// One that already exists is reused, so empty chats do not pile up.
+export function freshStart(snapshot: Snapshot): Snapshot {
+  const active = snapshot.conversations.find((chat) => chat.id === snapshot.activeConversationId);
+  const native = active?.native ?? snapshot.settings.native;
+  const target = active?.target ?? snapshot.settings.target;
+  const blank = (chat: Conversation) =>
+    !chat.messages.length && !chat.practiceOf && !chat.grammar && !chat.roleplay && !chat.video && chat.native === native && chat.target === target;
+  if (active && blank(active)) return snapshot;
+  const existing = snapshot.conversations.find(blank);
+  if (existing) return { ...snapshot, activeConversationId: existing.id };
+  const conversation = makeConversation(native, target, false);
+  return { ...snapshot, activeConversationId: conversation.id, conversations: [conversation, ...snapshot.conversations] };
+}

@@ -1,0 +1,548 @@
+{
+  "versions": [
+    "v2"
+  ],
+  "repeats": 5,
+  "runs": [
+    {
+      "version": "v2",
+      "caseId": "slip-name",
+      "raw": "",
+      "failure": "OpenAI’s service connection could not be authenticated. Language Partner needs to restore its service connection. Please try again later."
+    },
+    {
+      "version": "v2",
+      "caseId": "slip-name",
+      "raw": "",
+      "failure": "OpenAI’s service connection could not be authenticated. Language Partner needs to restore its service connection. Please try again later."
+    },
+    {
+      "version": "v2",
+      "caseId": "slip-name",
+      "raw": "",
+      "failure": "OpenAI’s service connection could not be authenticated. Language Partner needs to restore its service connection. Please try again later."
+    },
+    {
+      "version": "v2",
+      "caseId": "slip-non-word",
+      "raw": "",
+      "failure": "OpenAI’s service connection could not be authenticated. Language Partner needs to restore its service connection. Please try again later."
+    },
+    {
+      "version": "v2",
+      "caseId": "slip-name",
+      "raw": "",
+      "failure": "OpenAI’s service connection could not be authenticated. Language Partner needs to restore its service connection. Please try again later."
+    },
+    {
+      "version": "v2",
+      "caseId": "slip-non-word",
+      "raw": "",
+      "failure": "OpenAI’s service connection could not be authenticated. Language Partner needs to restore its service connection. Please try again later."
+    },
+    {
+      "version": "v2",
+      "caseId": "slip-non-word",
+      "raw": "",
+      "failure": "OpenAI’s service connection could not be authenticated. Language Partner needs to restore its service connection. Please try again later."
+    },
+    {
+      "version": "v2",
+      "caseId": "slip-name",
+      "raw": "",
+      "failure": "OpenAI’s service connection could not be authenticated. Language Partner needs to restore its service connection. Please try again later."
+    },
+    {
+      "version": "v2",
+      "caseId": "slip-non-word",
+      "raw": "",
+      "failure": "OpenAI’s service connection could not be authenticated. Language Partner needs to restore its service connection. Please try again later."
+    },
+    {
+      "version": "v2",
+      "caseId": "slip-non-word",
+      "raw": "",
+      "failure": "OpenAI’s service connection could not be authenticated. Language Partner needs to restore its service connection. Please try again later."
+    },
+    {
+      "version": "v2",
+      "caseId": "slip-repeated-words",
+      "raw": "",
+      "failure": "OpenAI’s service connection could not be authenticated. Language Partner needs to restore its service connection. Please try again later."
+    },
+    {
+      "version": "v2",
+      "caseId": "slip-repeated-words",
+      "raw": "",
+      "failure": "OpenAI’s service connection could not be authenticated. Language Partner needs to restore its service connection. Please try again later."
+    },
+    {
+      "version": "v2",
+      "caseId": "slip-repeated-words",
+      "raw": "",
+      "failure": "OpenAI’s service connection could not be authenticated. Language Partner needs to restore its service connection. Please try again later."
+    },
+    {
+      "version": "v2",
+      "caseId": "slip-repeated-words",
+      "raw": "",
+      "failure": "OpenAI’s service connection could not be authenticated. Language Partner needs to restore its service connection. Please try again later."
+    },
+    {
+      "version": "v2",
+      "caseId": "slip-repeated-words",
+      "raw": "",
+      "failure": "OpenAI’s service connection could not be authenticated. Language Partner needs to restore its service connection. Please try again later."
+    },
+    {
+      "version": "v2",
+      "caseId": "slip-latin-place",
+      "raw": "",
+      "failure": "OpenAI’s service connection could not be authenticated. Language Partner needs to restore its service connection. Please try again later."
+    },
+    {
+      "version": "v2",
+      "caseId": "slip-latin-place",
+      "raw": "",
+      "failure": "OpenAI’s service connection could not be authenticated. Language Partner needs to restore its service connection. Please try again later."
+    },
+    {
+      "version": "v2",
+      "caseId": "slip-latin-place",
+      "raw": "",
+      "failure": "OpenAI’s service connection could not be authenticated. Language Partner needs to restore its service connection. Please try again later."
+    },
+    {
+      "version": "v2",
+      "caseId": "slip-latin-place",
+      "raw": "",
+      "failure": "OpenAI’s service connection could not be authenticated. Language Partner needs to restore its service connection. Please try again later."
+    },
+    {
+      "version": "v2",
+      "caseId": "slip-split-word",
+      "raw": "",
+      "failure": "OpenAI’s service connection could not be authenticated. Language Partner needs to restore its service connection. Please try again later."
+    },
+    {
+      "version": "v2",
+      "caseId": "slip-latin-place",
+      "raw": "",
+      "failure": "OpenAI’s service connection could not be authenticated. Language Partner needs to restore its service connection. Please try again later."
+    },
+    {
+      "version": "v2",
+      "caseId": "slip-split-word",
+      "raw": "",
+      "failure": "OpenAI’s service connection could not be authenticated. Language Partner needs to restore its service connection. Please try again later."
+    },
+    {
+      "version": "v2",
+      "caseId": "slip-split-word",
+      "raw": "",
+      "failure": "OpenAI’s service connection could not be authenticated. Language Partner needs to restore its service connection. Please try again later."
+    },
+    {
+      "version": "v2",
+      "caseId": "slip-split-word",
+      "raw": "",
+      "failure": "OpenAI’s service connection could not be authenticated. Language Partner needs to restore its service connection. Please try again later."
+    },
+    {
+      "version": "v2",
+      "caseId": "slip-split-word",
+      "raw": "",
+      "failure": "OpenAI’s service connection could not be authenticated. Language Partner needs to restore its service connection. Please try again later."
+    },
+    {
+      "version": "v2",
+      "caseId": "error-prepositional",
+      "raw": "",
+      "failure": "OpenAI’s service connection could not be authenticated. Language Partner needs to restore its service connection. Please try again later."
+    },
+    {
+      "version": "v2",
+      "caseId": "error-prepositional",
+      "raw": "",
+      "failure": "OpenAI’s service connection could not be authenticated. Language Partner needs to restore its service connection. Please try again later."
+    },
+    {
+      "version": "v2",
+      "caseId": "error-prepositional",
+      "raw": "",
+      "failure": "OpenAI’s service connection could not be authenticated. Language Partner needs to restore its service connection. Please try again later."
+    },
+    {
+      "version": "v2",
+      "caseId": "error-prepositional",
+      "raw": "",
+      "failure": "OpenAI’s service connection could not be authenticated. Language Partner needs to restore its service connection. Please try again later."
+    },
+    {
+      "version": "v2",
+      "caseId": "error-dative",
+      "raw": "",
+      "failure": "OpenAI’s service connection could not be authenticated. Language Partner needs to restore its service connection. Please try again later."
+    },
+    {
+      "version": "v2",
+      "caseId": "error-prepositional",
+      "raw": "",
+      "failure": "OpenAI’s service connection could not be authenticated. Language Partner needs to restore its service connection. Please try again later."
+    },
+    {
+      "version": "v2",
+      "caseId": "error-dative",
+      "raw": "",
+      "failure": "OpenAI’s service connection could not be authenticated. Language Partner needs to restore its service connection. Please try again later."
+    },
+    {
+      "version": "v2",
+      "caseId": "error-dative",
+      "raw": "",
+      "failure": "OpenAI’s service connection could not be authenticated. Language Partner needs to restore its service connection. Please try again later."
+    },
+    {
+      "version": "v2",
+      "caseId": "error-dative",
+      "raw": "",
+      "failure": "OpenAI’s service connection could not be authenticated. Language Partner needs to restore its service connection. Please try again later."
+    },
+    {
+      "version": "v2",
+      "caseId": "error-dative",
+      "raw": "",
+      "failure": "OpenAI’s service connection could not be authenticated. Language Partner needs to restore its service connection. Please try again later."
+    },
+    {
+      "version": "v2",
+      "caseId": "error-gender",
+      "raw": "",
+      "failure": "OpenAI’s service connection could not be authenticated. Language Partner needs to restore its service connection. Please try again later."
+    },
+    {
+      "version": "v2",
+      "caseId": "error-gender",
+      "raw": "",
+      "failure": "OpenAI’s service connection could not be authenticated. Language Partner needs to restore its service connection. Please try again later."
+    },
+    {
+      "version": "v2",
+      "caseId": "error-gender",
+      "raw": "",
+      "failure": "OpenAI’s service connection could not be authenticated. Language Partner needs to restore its service connection. Please try again later."
+    },
+    {
+      "version": "v2",
+      "caseId": "error-gender",
+      "raw": "",
+      "failure": "OpenAI’s service connection could not be authenticated. Language Partner needs to restore its service connection. Please try again later."
+    },
+    {
+      "version": "v2",
+      "caseId": "error-gender",
+      "raw": "",
+      "failure": "OpenAI’s service connection could not be authenticated. Language Partner needs to restore its service connection. Please try again later."
+    },
+    {
+      "version": "v2",
+      "caseId": "error-conjugation",
+      "raw": "",
+      "failure": "OpenAI’s service connection could not be authenticated. Language Partner needs to restore its service connection. Please try again later."
+    },
+    {
+      "version": "v2",
+      "caseId": "error-conjugation",
+      "raw": "",
+      "failure": "OpenAI’s service connection could not be authenticated. Language Partner needs to restore its service connection. Please try again later."
+    },
+    {
+      "version": "v2",
+      "caseId": "error-conjugation",
+      "raw": "",
+      "failure": "OpenAI’s service connection could not be authenticated. Language Partner needs to restore its service connection. Please try again later."
+    },
+    {
+      "version": "v2",
+      "caseId": "error-genitive",
+      "raw": "",
+      "failure": "OpenAI’s service connection could not be authenticated. Language Partner needs to restore its service connection. Please try again later."
+    },
+    {
+      "version": "v2",
+      "caseId": "error-conjugation",
+      "raw": "",
+      "failure": "OpenAI’s service connection could not be authenticated. Language Partner needs to restore its service connection. Please try again later."
+    },
+    {
+      "version": "v2",
+      "caseId": "error-conjugation",
+      "raw": "",
+      "failure": "OpenAI’s service connection could not be authenticated. Language Partner needs to restore its service connection. Please try again later."
+    },
+    {
+      "version": "v2",
+      "caseId": "error-genitive",
+      "raw": "",
+      "failure": "OpenAI’s service connection could not be authenticated. Language Partner needs to restore its service connection. Please try again later."
+    },
+    {
+      "version": "v2",
+      "caseId": "error-genitive",
+      "raw": "",
+      "failure": "OpenAI’s service connection could not be authenticated. Language Partner needs to restore its service connection. Please try again later."
+    },
+    {
+      "version": "v2",
+      "caseId": "error-genitive",
+      "raw": "",
+      "failure": "OpenAI’s service connection could not be authenticated. Language Partner needs to restore its service connection. Please try again later."
+    },
+    {
+      "version": "v2",
+      "caseId": "error-motion-verb",
+      "raw": "",
+      "failure": "OpenAI’s service connection could not be authenticated. Language Partner needs to restore its service connection. Please try again later."
+    },
+    {
+      "version": "v2",
+      "caseId": "error-genitive",
+      "raw": "",
+      "failure": "OpenAI’s service connection could not be authenticated. Language Partner needs to restore its service connection. Please try again later."
+    },
+    {
+      "version": "v2",
+      "caseId": "error-motion-verb",
+      "raw": "",
+      "failure": "OpenAI’s service connection could not be authenticated. Language Partner needs to restore its service connection. Please try again later."
+    },
+    {
+      "version": "v2",
+      "caseId": "error-motion-verb",
+      "raw": "",
+      "failure": "OpenAI’s service connection could not be authenticated. Language Partner needs to restore its service connection. Please try again later."
+    },
+    {
+      "version": "v2",
+      "caseId": "error-motion-verb",
+      "raw": "",
+      "failure": "OpenAI’s service connection could not be authenticated. Language Partner needs to restore its service connection. Please try again later."
+    },
+    {
+      "version": "v2",
+      "caseId": "error-motion-verb",
+      "raw": "",
+      "failure": "OpenAI’s service connection could not be authenticated. Language Partner needs to restore its service connection. Please try again later."
+    },
+    {
+      "version": "v2",
+      "caseId": "error-several",
+      "raw": "",
+      "failure": "OpenAI’s service connection could not be authenticated. Language Partner needs to restore its service connection. Please try again later."
+    },
+    {
+      "version": "v2",
+      "caseId": "error-several",
+      "raw": "",
+      "failure": "OpenAI’s service connection could not be authenticated. Language Partner needs to restore its service connection. Please try again later."
+    },
+    {
+      "version": "v2",
+      "caseId": "error-several",
+      "raw": "",
+      "failure": "OpenAI’s service connection could not be authenticated. Language Partner needs to restore its service connection. Please try again later."
+    },
+    {
+      "version": "v2",
+      "caseId": "error-several",
+      "raw": "",
+      "failure": "OpenAI’s service connection could not be authenticated. Language Partner needs to restore its service connection. Please try again later."
+    },
+    {
+      "version": "v2",
+      "caseId": "error-several",
+      "raw": "",
+      "failure": "OpenAI’s service connection could not be authenticated. Language Partner needs to restore its service connection. Please try again later."
+    },
+    {
+      "version": "v2",
+      "caseId": "clean-past",
+      "raw": "",
+      "failure": "OpenAI’s service connection could not be authenticated. Language Partner needs to restore its service connection. Please try again later."
+    },
+    {
+      "version": "v2",
+      "caseId": "clean-past",
+      "raw": "",
+      "failure": "OpenAI’s service connection could not be authenticated. Language Partner needs to restore its service connection. Please try again later."
+    },
+    {
+      "version": "v2",
+      "caseId": "clean-past",
+      "raw": "",
+      "failure": "OpenAI’s service connection could not be authenticated. Language Partner needs to restore its service connection. Please try again later."
+    },
+    {
+      "version": "v2",
+      "caseId": "clean-past",
+      "raw": "",
+      "failure": "OpenAI’s service connection could not be authenticated. Language Partner needs to restore its service connection. Please try again later."
+    },
+    {
+      "version": "v2",
+      "caseId": "clean-past",
+      "raw": "",
+      "failure": "OpenAI’s service connection could not be authenticated. Language Partner needs to restore its service connection. Please try again later."
+    },
+    {
+      "version": "v2",
+      "caseId": "clean-instrumental",
+      "raw": "",
+      "failure": "OpenAI’s service connection could not be authenticated. Language Partner needs to restore its service connection. Please try again later."
+    },
+    {
+      "version": "v2",
+      "caseId": "clean-instrumental",
+      "raw": "",
+      "failure": "OpenAI’s service connection could not be authenticated. Language Partner needs to restore its service connection. Please try again later."
+    },
+    {
+      "version": "v2",
+      "caseId": "clean-instrumental",
+      "raw": "",
+      "failure": "OpenAI’s service connection could not be authenticated. Language Partner needs to restore its service connection. Please try again later."
+    },
+    {
+      "version": "v2",
+      "caseId": "clean-instrumental",
+      "raw": "",
+      "failure": "OpenAI’s service connection could not be authenticated. Language Partner needs to restore its service connection. Please try again later."
+    },
+    {
+      "version": "v2",
+      "caseId": "clean-no-punctuation",
+      "raw": "",
+      "failure": "OpenAI’s service connection could not be authenticated. Language Partner needs to restore its service connection. Please try again later."
+    },
+    {
+      "version": "v2",
+      "caseId": "clean-no-punctuation",
+      "raw": "",
+      "failure": "OpenAI’s service connection could not be authenticated. Language Partner needs to restore its service connection. Please try again later."
+    },
+    {
+      "version": "v2",
+      "caseId": "clean-instrumental",
+      "raw": "",
+      "failure": "OpenAI’s service connection could not be authenticated. Language Partner needs to restore its service connection. Please try again later."
+    },
+    {
+      "version": "v2",
+      "caseId": "clean-no-punctuation",
+      "raw": "",
+      "failure": "OpenAI’s service connection could not be authenticated. Language Partner needs to restore its service connection. Please try again later."
+    },
+    {
+      "version": "v2",
+      "caseId": "clean-no-punctuation",
+      "raw": "",
+      "failure": "OpenAI’s service connection could not be authenticated. Language Partner needs to restore its service connection. Please try again later."
+    },
+    {
+      "version": "v2",
+      "caseId": "clean-work",
+      "raw": "",
+      "failure": "OpenAI’s service connection could not be authenticated. Language Partner needs to restore its service connection. Please try again later."
+    },
+    {
+      "version": "v2",
+      "caseId": "clean-work",
+      "raw": "",
+      "failure": "OpenAI’s service connection could not be authenticated. Language Partner needs to restore its service connection. Please try again later."
+    },
+    {
+      "version": "v2",
+      "caseId": "clean-work",
+      "raw": "",
+      "failure": "OpenAI’s service connection could not be authenticated. Language Partner needs to restore its service connection. Please try again later."
+    },
+    {
+      "version": "v2",
+      "caseId": "clean-work",
+      "raw": "",
+      "failure": "OpenAI’s service connection could not be authenticated. Language Partner needs to restore its service connection. Please try again later."
+    },
+    {
+      "version": "v2",
+      "caseId": "clean-no-punctuation",
+      "raw": "",
+      "failure": "OpenAI’s service connection could not be authenticated. Language Partner needs to restore its service connection. Please try again later."
+    },
+    {
+      "version": "v2",
+      "caseId": "clean-work",
+      "raw": "",
+      "failure": "OpenAI’s service connection could not be authenticated. Language Partner needs to restore its service connection. Please try again later."
+    },
+    {
+      "version": "v2",
+      "caseId": "ambiguous-bank",
+      "raw": "",
+      "failure": "OpenAI’s service connection could not be authenticated. Language Partner needs to restore its service connection. Please try again later."
+    },
+    {
+      "version": "v2",
+      "caseId": "ambiguous-bank",
+      "raw": "",
+      "failure": "OpenAI’s service connection could not be authenticated. Language Partner needs to restore its service connection. Please try again later."
+    },
+    {
+      "version": "v2",
+      "caseId": "ambiguous-bank",
+      "raw": "",
+      "failure": "OpenAI’s service connection could not be authenticated. Language Partner needs to restore its service connection. Please try again later."
+    },
+    {
+      "version": "v2",
+      "caseId": "ambiguous-bank",
+      "raw": "",
+      "failure": "OpenAI’s service connection could not be authenticated. Language Partner needs to restore its service connection. Please try again later."
+    },
+    {
+      "version": "v2",
+      "caseId": "ambiguous-building",
+      "raw": "",
+      "failure": "OpenAI’s service connection could not be authenticated. Language Partner needs to restore its service connection. Please try again later."
+    },
+    {
+      "version": "v2",
+      "caseId": "ambiguous-bank",
+      "raw": "",
+      "failure": "OpenAI’s service connection could not be authenticated. Language Partner needs to restore its service connection. Please try again later."
+    },
+    {
+      "version": "v2",
+      "caseId": "ambiguous-building",
+      "raw": "",
+      "failure": "OpenAI’s service connection could not be authenticated. Language Partner needs to restore its service connection. Please try again later."
+    },
+    {
+      "version": "v2",
+      "caseId": "ambiguous-building",
+      "raw": "",
+      "failure": "OpenAI’s service connection could not be authenticated. Language Partner needs to restore its service connection. Please try again later."
+    },
+    {
+      "version": "v2",
+      "caseId": "ambiguous-building",
+      "raw": "",
+      "failure": "OpenAI’s service connection could not be authenticated. Language Partner needs to restore its service connection. Please try again later."
+    },
+    {
+      "version": "v2",
+      "caseId": "ambiguous-building",
+      "raw": "",
+      "failure": "OpenAI’s service connection could not be authenticated. Language Partner needs to restore its service connection. Please try again later."
+    }
+  ]
+}
