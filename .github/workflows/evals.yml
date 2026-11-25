@@ -1,0 +1,55 @@
+# The chat prompt eval. It calls the model, so it costs money: it runs only
+# when a pull request changes the prompts or the eval itself, or when started
+# by hand from the Actions tab. It reports and never blocks a merge.
+# Needs the repository secret LLM_API_KEYS, e.g. {"openai":"sk-..."}.
+name: Evals
+on:
+  pull_request:
+    paths:
+      - mobile/server/prompts/**
+      - mobile/server/llm.ts
+      - mobile/server/providers.ts
+      - mobile/server/schemas.ts
+      - mobile/evals/**
+  workflow_dispatch:
+    inputs:
+      versions:
+        description: Prompt versions to compare, e.g. "v5 v7". Empty means the one the app uses.
+        required: false
+      repeats:
+        description: Runs per case
+        default: "3"
+jobs:
+  evals:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: mobile
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: mobile/package-lock.json
+      - run: npm ci
+      - name: Run the eval
+        env:
+          LLM_API_KEYS: ${{ secrets.LLM_API_KEYS }}
+          VERSIONS: ${{ inputs.versions }}
+          REPEATS: ${{ inputs.repeats || '2' }}
+        run: |
+          rm -f evals/results/*   # earlier reports are in the repository; keep only this run's
+          if [ -z "$VERSIONS" ]; then
+            VERSIONS=$(node --import tsx -e "import('./server/prompts/index.ts').then((m) => console.log(m.chatPromptVersion))")
+          fi
+          npm run eval -- $VERSIONS --repeats "$REPEATS"
+      - name: Show the report on the run page
+        if: always()
+        run: cat evals/results/*.md >> "$GITHUB_STEP_SUMMARY" 2>/dev/null || echo "The eval produced no report." >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: eval-results
+          path: mobile/evals/results/
