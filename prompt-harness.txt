@@ -1,0 +1,42 @@
+ 1. Remove translation & feedback rules from base chatPrompt and curriculum strings
+      • Keep chatPrompt purely about persona, tone, DICTATION:, corrections/misheard/meant schema
+      usage, and THE LEARNER (speaker).
+      • Do not hardcode "Only translate if asked" in chatPrompt or "Put its concise English
+      translation directly on the next line" inside grammar.ts (verb-aspects / past-events / plans-
+      intentions). Let curricula define linguistic content (use case, example sentence in target
+      language, speaking task, verb bank) without dictating translation layout.
+  2. Render one authoritative TRANSLATION POLICY block from translatesReplies(settings) + mode
+  Instead of writing translation rules in two places and appending "This overrides every instruction
+  above" at the bottom:
+      • ordinary / video / practice: Target language only in "reply". Never translate your lines
+      unless the learner asks. (Because afterReply() translates asynchronously when translatesReplies
+      is on.)
+      • roleplay / grammar with translatesReplies(settings) === true: Show the target-language
+      line/task first, then a concise ${native} translation on the next line (no language-name
+      labels).
+      • roleplay / grammar with translatesReplies(settings) === false: Target language only for all
+      character lines, examples, questions, and tasks; do not include ${native} translations unless
+      asked.
+  3. Separate corrections vs. end-of-roleplay recap
+      • In roleplay FINISH:, instruct the model to put the conversational wrap-up in reply (and any
+      native-language summary of objectives achieved), while keeping all concrete phrase fixes in the
+      structured corrections array rather than asking for "one useful language improvement" in free
+      prose.
+  4. Make ConversationMode an explicit discriminated union on the harness
+    type ConversationMode =
+      | { kind: "ordinary"; level?: Level; lexicon: string[] }
+      | { kind: "video"; title: string; summary?: string; opening: boolean; suggestedQuestion?:
+      string; suggestedAgain?: boolean }
+      | { kind: "practice"; context: PracticeContext }
+      | { kind: "roleplay"; scenario: RoleplayPractice; opening: boolean }
+      | { kind: "grammar"; topic: GrammarPractice; opening: boolean };
+  A single buildChatInstruction(mode, policy) function then renders fixed sections in order: [Persona
+  + Dictation] → [Mode Rules] → [Translation Policy] → [Corrections/Meant Policy] → [Learner Gender]
+  → [Untrusted Mode JSON Data], so turn-1 (opening) and continuation (!opening) rules are never mixed,
+  and every mode shares one translation and data-boundary contract.
+
+  (Still unaddressed from the earlier review if you want to tackle them next: outline "check" seeing
+  only <meant> notes instead of raw messages + no intermediate checkpointing in outlineIfMissing;
+  afterReply / reviewDictionary / SelectionSheet / scriptRests request fan-out vs.
+  PER_MINUTE_AI_REQUEST_LIMIT = 60; and updateConversationAccess(..., "authorize") gating/racing on
+  holdUntil for non-chat actions when paywallEnabled is true.)
