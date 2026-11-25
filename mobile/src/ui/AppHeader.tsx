@@ -36,7 +36,8 @@ export function AppHeader({
         adjustsFontSizeToFit={prominent}
         minimumFontScale={0.75}
         medium={prominent}
-        style={[styles.title, prominent && styles.conversationTitle]}
+        // A long title, such as a video's, is set smaller so it does not take over the screen.
+        style={[styles.title, prominent && (title.length > 30 ? styles.longTitle : styles.conversationTitle)]}
       >
         {title}
       </DisplayText>
@@ -51,5 +52,6 @@ const styles = StyleSheet.create({
   feedbackButton: { minHeight: 32, paddingHorizontal: 10, paddingVertical: 4 },
   title: { textAlign: "center", fontSize: 18, lineHeight: 25, color: c.ink, paddingHorizontal: 12 },
   conversationTitle: { fontSize: 36, lineHeight: 44, letterSpacing: -0.6 },
+  longTitle: { fontSize: 24, lineHeight: 31, letterSpacing: -0.3 },
   button: { width: 44, minHeight: 44, borderWidth: 0, borderRadius: 22, backgroundColor: "transparent", paddingHorizontal: 10 },
 });

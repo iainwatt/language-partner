@@ -13,6 +13,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
+  Flame,
   BookOpen,
   BookOpenText,
   ChartNoAxesColumnIncreasing,
@@ -41,6 +42,8 @@ export function NavigationDrawer({
   statsSelected,
   issuesSelected,
   videosSelected,
+  homeSelected,
+  onHome,
   savedDataStatus,
   onClose,
   onNewChat,
@@ -63,6 +66,8 @@ export function NavigationDrawer({
   statsSelected: boolean;
   issuesSelected: boolean;
   videosSelected: boolean;
+  homeSelected: boolean;
+  onHome: () => void;
   savedDataStatus?: { loaded: boolean };
   onClose: () => void;
   onNewChat: () => void;
@@ -168,6 +173,16 @@ export function NavigationDrawer({
               />
             </View>
             <View style={{ paddingHorizontal: 14 }}>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Today"
+                accessibilityState={{ selected: homeSelected }}
+                onPress={() => close(onHome)}
+                style={({ pressed }) => [styles.item, (homeSelected || pressed) && styles.selected]}
+              >
+                <Flame color={c.accent} size={20} strokeWidth={1.8} />
+                <Text style={styles.itemText}>Today</Text>
+              </Pressable>
               <Pressable
                 accessibilityRole="button"
                 accessibilityLabel="New chat"

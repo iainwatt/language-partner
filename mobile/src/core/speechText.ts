@@ -1,3 +1,5 @@
+import { writingSystem } from "./domain";
+
 // Prepare a separate spoken copy. Displayed messages, selections and saved words
 // retain their original text, including punctuation and formatting.
 // Remove Markdown emphasis markers and keep the words. Repeated to handle
@@ -37,6 +39,33 @@ export function prepareSpeechText(text: string): string {
     .replace(/ +([,.;:!?…\)\]}])/g, "$1")
     .replace(/([([{]) +/g, "$1")
     .replace(/ *\n */g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+const lettersOf: Record<string, RegExp> = {
+  cyrillic: /\p{Script=Cyrillic}/gu,
+  japanese: /[\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Han}]/gu,
+  latin: /\p{Script=Latin}/gu,
+};
+// What is said aloud of a message that carries the learner's own language as
+// well as the one they are learning: only the language being learned. A line
+// written mostly in the learner's script is a translation or an aside and is
+// left out, as is anything in brackets that is wholly in it. A name or a
+// borrowed word inside a line of the language being learned stays. This can
+// only be told apart where the two languages are written differently; where
+// they share a script the text is spoken as it is.
+export function spokenInTarget(text: string, target: string, native: string): string {
+  const wanted = lettersOf[writingSystem(target)], own = lettersOf[writingSystem(native)];
+  if (!wanted || !own || writingSystem(target) === writingSystem(native)) return text;
+  const count = (part: string, letters: RegExp) => part.match(letters)?.length ?? 0;
+  return text
+    .split("\n")
+    .map((line) => {
+      const kept = line.replace(/\s*[(（][^()（）]*[)）]/g, (aside) => (count(aside, own) > 0 && count(aside, wanted) === 0 ? "" : aside));
+      return count(kept, own) > count(kept, wanted) ? "" : kept;
+    })
+    .join("\n")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
 }

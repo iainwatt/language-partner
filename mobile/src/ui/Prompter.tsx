@@ -22,7 +22,7 @@ export function Pieces({ shown, marks, small }: { shown: ShownPiece[]; marks: bo
   return (
     <>
       {shown.map((piece, index) => {
-        // A hidden word is a bar of its own length in its own place, so the
+        // A hidden word is a blank of its own length in its own place, so the
         // learner can see how many words are to come and the pace is unchanged.
         if (piece.hidden)
           return <Text key={index} accessibilityElementsHidden importantForAccessibility="no" style={styles.bar}>{withoutStress(piece.text)}</Text>;
@@ -176,8 +176,8 @@ const styles = StyleSheet.create({
   small: { color: stage.text, fontFamily: fonts.serif, fontSize: 19, lineHeight: 28 },
   keyWord: { fontWeight: "700" },
   translated: { fontFamily: fonts.sans, fontWeight: "700", color: stage.line },
-  // Invisible letters on a tinted ground: a bar exactly as long as the word.
-  bar: { color: "transparent", backgroundColor: "rgba(244,241,232,0.2)" },
+  // Invisible letters, underlined: a blank exactly as long as the word.
+  bar: { color: "transparent", textDecorationLine: "underline", textDecorationColor: "rgba(244,241,232,0.55)" },
   aside: { fontFamily: fonts.sans, color: stage.dim },
   words: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 4, paddingTop: 6, paddingHorizontal: 18 },
   wordsText: { minWidth: 210, textAlign: "center", color: stage.text, fontFamily: fonts.sans, fontSize: 14, fontWeight: "600" },

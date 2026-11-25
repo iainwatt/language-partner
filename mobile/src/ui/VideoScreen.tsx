@@ -1,13 +1,18 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { AppState, Image, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from "react-native";
+import { Animated, AppState, Image, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from "react-native";
+import { CameraView, useCameraPermissions } from "expo-camera";
+import * as MediaLibrary from "expo-media-library";
+import { screenRecording } from "../services/screenRecording";
+import { tellPlayer } from "./playerCommands";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { useKeepAwake } from "expo-keep-awake";
 import { StatusBar } from "expo-status-bar";
 import YoutubePlayer, { type YoutubeIframeRef } from "react-native-youtube-iframe";
-import { BookOpen, MessageCircle, Mic, Plus, Languages, Pause, Play, Repeat, RotateCcw, SkipForward, Snail, Trash2, Video as Camera, X } from "lucide-react-native";
+import { Circle, MessageCircle, Mic, Plus, Languages, Pause, Play, RotateCcw, Square, Trash2, VolumeX, X } from "lucide-react-native";
 import { languageName, type Conversation, type DictionaryInput, type Message, type Settings } from "../core/domain";
 import type { PhraseRange } from "../core/selection";
-import { addedToday, clock, lineAt, linksPerDay, savedRanges, thumbnail, transcriptScript, type Video, type VideoLine } from "../core/videos";
+import { addedToday, clock, lineAt, linksPerDay, meaningRanges, savedRanges, thumbnail, type Video, type VideoLine } from "../core/videos";
+import { meaningKey } from "../core/practice";
 import { captionHook, captionReader } from "./CaptionFetcher";
 import { SelectableMessage } from "./SelectableMessage";
 import { SelectionSheet } from "./SelectionSheet";
@@ -128,22 +133,25 @@ export function VideosScreen({ videos, mine, ready, failed, account, language, p
 
 // The video with its transcript beneath. The transcript follows the video: the
 // app asks the player for the time a few times a second and highlights the
-// line being spoken. In repeat mode the video stops after each line so the
-// learner can say it. Words and phrases can be highlighted in a line and saved.
-export function VideoScreen({ video, conversation, settings, saved, discussed, onSave, onDiscuss, onPractise, onRecord, onRead, onWatched, onTranscript, report, onClose }: {
+// line being spoken. Practising mutes the video and leaves everything else as
+// it is, so the learner says each line as it lights up. The saved words in the
+// line being spoken are shown with their meanings above the bar; words and
+// phrases can be highlighted in a line and saved.
+export function VideoScreen({ video, conversation, settings, saved, meanings, discussed, onSave, onDiscuss, onRecorded, onRead, onWatched, onTranscript, report, onClose }: {
   video: Video;
   // The current conversation, for the languages a saved phrase belongs to.
   conversation: Conversation;
   settings: Settings;
   // Phrases already in the dictionary, marked where they appear.
   saved: string[];
+  // What those phrases mean, looked up with meaningKey, to show while their line is being spoken.
+  meanings: Record<string, string>;
   onSave: (entry: DictionaryInput) => Promise<void>;
   // Talk about the video with the partner. There is one discussion for each video.
   discussed: boolean;
   onDiscuss: () => void;
-  // Read the transcript aloud from the prompter, or film it, as with a script.
-  onPractise: (script: string) => void;
-  onRecord: (script: string) => void;
+  // Told the length of each practice take the learner kept.
+  onRecorded: (ms: number) => void;
   // A live reading of a section of this video, transcribed and logged.
   onRead: () => void;
   // Told how long the video actually played, when the screen closes or the app is left.
@@ -162,12 +170,10 @@ export function VideoScreen({ video, conversation, settings, saved, discussed, o
   const offsets = useRef<number[]>([]);
   const [playing, setPlaying] = useState(false);
   const [current, setCurrent] = useState(0);
-  const [repeat, setRepeat] = useState(false);
-  const [waiting, setWaiting] = useState(false);
-  const [slow, setSlow] = useState(false);
   const [translations, setTranslations] = useState(false);
-  // In repeat mode, the line the video is playing through before it stops.
-  const holding = useRef<number | null>(null);
+  // Practising: the video carries on without its sound, and the learner says
+  // each line as it lights up. Everything else about the screen stays as it is.
+  const [practising, setPractising] = useState(false);
   const lines = video.lines;
   const [selection, setSelection] = useState<{ line: number; message: Message; range: PhraseRange } | null>(null);
   // Following the video: the transcript moves only when the line being spoken
@@ -184,6 +190,24 @@ export function VideoScreen({ video, conversation, settings, saved, discussed, o
     [lines, video.createdAt],
   );
   const marks = useMemo(() => lines.map((line) => savedRanges(line.text, saved)), [lines, saved]);
+  // In each line's translation, where the meanings of its saved words appear.
+  const translationMarks = useMemo(() => lines.map((line, index) =>
+    line.translation
+      ? meaningRanges(line.translation, marks[index].flatMap((range) => meanings[meaningKey(line.text.slice(range.start, range.end))] ?? []))
+      : []), [lines, marks, meanings]);
+  // The learner's saved words in the line being spoken, with what they mean.
+  // They are shown above the bar for as long as that line is lit.
+  const lineWords = useMemo(() => {
+    const line = lines[current];
+    const seen = new Set<string>();
+    return (line ? marks[current] ?? [] : []).flatMap((range) => {
+      const phrase = line.text.slice(range.start, range.end);
+      const meaning = meanings[meaningKey(phrase)];
+      if (!meaning || seen.has(meaningKey(phrase))) return [];
+      seen.add(meaningKey(phrase));
+      return [{ phrase, meaning }];
+    });
+  }, [lines, marks, meanings, current]);
   function stopGlide() {
     if (glide.current !== null) cancelAnimationFrame(glide.current);
     glide.current = null;
@@ -208,19 +232,12 @@ export function VideoScreen({ video, conversation, settings, saved, discussed, o
     if (!playing) return;
     const timer = setInterval(() => {
       void player.current?.getCurrentTime().then((seconds) => {
-        const index = lineAt(lines, seconds);
-        if (repeat && holding.current !== null && index > holding.current) {
-          // The line has finished: stop for the learner to say it.
-          setPlaying(false);
-          setWaiting(true);
-          return;
-        }
-        if (holding.current === null) holding.current = index;
-        setCurrent(index);
+        position.current = seconds;
+        setCurrent(lineAt(lines, seconds));
       }).catch(() => {});
     }, 200);
     return () => clearInterval(timer);
-  }, [playing, repeat, lines]);
+  }, [playing, lines]);
   useEffect(() => {
     if (selecting.current || Date.now() < handsOffUntil.current || !viewHeight.current) return;
     const top = offsets.current[current] ?? 0;
@@ -230,6 +247,11 @@ export function VideoScreen({ video, conversation, settings, saved, discussed, o
     glideTo(Math.max(0, top - viewHeight.current * 0.2));
   }, [current]);
 
+  // Play, pause and mute are sent to the player directly; see tellPlayer.
+  useEffect(() => { tellPlayer(player.current, playing ? "player.playVideo()" : "player.pauseVideo()"); }, [playing]);
+  useEffect(() => { tellPlayer(player.current, practising ? "player.mute()" : "player.unMute()"); }, [practising]);
+  // Where the video has got to, in seconds, as last heard from the player.
+  const position = useRef(0);
   const lastJump = useRef({ line: -1, at: 0 });
   function playFrom(index: number) {
     // A video with no transcript simply plays.
@@ -239,18 +261,24 @@ export function VideoScreen({ video, conversation, settings, saved, discussed, o
     if (lastJump.current.line === line && Date.now() - lastJump.current.at < 400) return;
     lastJump.current = { line, at: Date.now() };
     handsOffUntil.current = 0;
-    holding.current = line;
+    position.current = lines[line].start;
     setCurrent(line);
-    setWaiting(false);
-    player.current?.seekTo(lines[line].start, true);
+    tellPlayer(player.current, "player.playVideo()", lines[line].start);
     setPlaying(true);
   }
   function toggle() {
-    if (waiting) return playFrom(current + 1);
-    holding.current = null;
     handsOffUntil.current = 0;
     setPlaying(!playing);
   }
+  // Back to the start of the line being spoken; pressed again within a moment
+  // of its start, to the line before, as a music player's back button does.
+  function back() {
+    if (!lines.length) return tellPlayer(player.current, "player.playVideo()", position.current - 10);
+    const into = position.current - (lines[current]?.start ?? 0);
+    lastJump.current = { line: -1, at: 0 };
+    playFrom(into < 1.5 ? current - 1 : current);
+  }
+
   // Time watching is time the video was playing, not time the screen was open.
   const watched = useRef(0);
   const reportWatched = useRef(onWatched);
@@ -288,23 +316,94 @@ export function VideoScreen({ video, conversation, settings, saved, discussed, o
     return () => clearTimeout(timer);
   }, [capturing, playing, lines.length]);
   const hasTranslations = lines.some((line) => line.translation);
-  const script = useMemo(() => transcriptScript(lines, saved), [lines, saved]);
-  function rehearse(open: (script: string) => void) {
-    stopGlide();
-    holding.current = null;
-    setWaiting(false);
+  // Recording a practice take: the screen itself is filmed, with the learner's
+  // voice and, in a corner, their face. The saved clip shows the words lighting
+  // up and the learner; where the video plays, the clip shows a card with its
+  // picture, title, maker and the date instead, so no footage goes into it.
+  const [take, setTake] = useState<"off" | "starting" | "on" | "stopping" | { uri: string; durationMs: number } | "saving">("off");
+  const takeNow = useRef(take);
+  takeNow.current = take;
+  const [camera, askCamera] = useCameraPermissions();
+  const playerHeight = Math.round((width * 9) / 16);
+  const light = useRef(new Animated.Value(1)).current;
+  useEffect(() => {
+    if (take !== "on") return;
+    const flash = Animated.loop(Animated.sequence([
+      Animated.timing(light, { toValue: 0.15, duration: 600, useNativeDriver: true }),
+      Animated.timing(light, { toValue: 1, duration: 600, useNativeDriver: true }),
+    ]));
+    flash.start();
+    return () => { flash.stop(); light.setValue(1); };
+  }, [take]);
+  async function startTake() {
+    if (take !== "off" || !lines.length) return;
+    setTake("starting");
     setPlaying(false);
-    open(script);
+    try {
+      if (camera && !camera.granted && camera.canAskAgain) await askCamera();
+      await screenRecording.start({
+        x: 0, y: insets.top, width, height: playerHeight,
+        lines: [video.title, video.channel ?? "", new Date().toLocaleDateString(undefined, { day: "numeric", month: "long", year: "numeric" })],
+        image: thumbnail(video.youtubeId),
+      });
+      setPractising(true);
+      setTake("on");
+      // The take begins at the start of the line the learner was on.
+      lastJump.current = { line: -1, at: 0 };
+      playFrom(current);
+    } catch (error: any) {
+      setTake("off");
+      report(error.message ?? "The recording could not be started.");
+    }
   }
+  async function stopTake() {
+    if (takeNow.current !== "on") return;
+    setTake("stopping");
+    setPlaying(false);
+    try {
+      setTake(await screenRecording.stop());
+    } catch (error: any) {
+      setTake("off");
+      report(error.message ?? "The recording could not be finished.");
+    }
+  }
+  async function keepTake() {
+    if (typeof take !== "object") return;
+    const kept = take;
+    setTake("saving");
+    try {
+      const allowed = await MediaLibrary.requestPermissionsAsync(true);
+      if (!allowed.granted) throw new Error("Allow Language Partner to add to your Photos, in Settings, to keep recordings.");
+      await MediaLibrary.saveToLibraryAsync(kept.uri);
+      onRecorded(kept.durationMs);
+      report("Saved to your Photos.");
+      void screenRecording.discard(kept.uri);
+      setTake("off");
+    } catch (error: any) {
+      setTake(kept);
+      report(error.message ?? "The recording could not be saved.");
+    }
+  }
+  function dropTake() {
+    if (typeof take === "object") void screenRecording.discard(take.uri);
+    setTake("off");
+  }
+  // Leaving the screen ends a take and throws it away.
+  useEffect(() => () => {
+    const now = takeNow.current;
+    if (now === "on") void screenRecording.stop().then((clip) => screenRecording.discard(clip.uri)).catch(() => {});
+    else if (typeof now === "object") void screenRecording.discard(now.uri);
+  }, []);
+  const taking = take === "on" || take === "starting" || take === "stopping";
   return (
     <View accessibilityViewIsModal style={[styles.cover, { paddingTop: insets.top }]}>
       <StatusBar style="light" />
       <YoutubePlayer
         ref={player}
-        height={Math.round((width * 9) / 16)}
+        height={playerHeight}
         videoId={video.youtubeId}
         play={playing}
-        playbackRate={slow ? 0.75 : 1}
+        mute={practising}
         initialPlayerParams={capturing
           ? { cc_lang_pref: video.language.slice(0, 2), showClosedCaptions: true, rel: false, preventFullScreen: true }
           : { cc_lang_pref: "xx", showClosedCaptions: false, rel: false, preventFullScreen: true }}
@@ -314,10 +413,12 @@ export function VideoScreen({ video, conversation, settings, saved, discussed, o
         } : undefined}
         // The subtitle track arrives on this otherwise unused channel; see captionHook.
         onPlaybackQualityChange={(data: unknown) => reader?.receive(data)}
+        onReady={() => tellPlayer(player.current, practising ? "player.mute()" : "player.unMute()")}
         onChangeState={(state: string) => {
           // Keep the app's idea of playing in step with the player's own controls.
-          if (state === "playing") { setPlaying(true); setWaiting(false); }
+          if (state === "playing") setPlaying(true);
           if (state === "paused" || state === "ended") setPlaying(false);
+          if (state === "ended") void stopTake();
           // The video is over: bring what to do next into view.
           if (state === "ended" && !selecting.current) list.current?.scrollToEnd({ animated: true });
         }}
@@ -360,8 +461,6 @@ export function VideoScreen({ video, conversation, settings, saved, discussed, o
                   if (!active) return void (handsOffUntil.current = Date.now() + 4000);
                   // Hold everything still while words are being highlighted.
                   stopGlide();
-                  holding.current = null;
-                  setWaiting(false);
                   setPlaying(false);
                 }}
                 onSelect={(range) => {
@@ -369,7 +468,16 @@ export function VideoScreen({ video, conversation, settings, saved, discussed, o
                   setSelection({ line: index, message: messages[index], range });
                 }}
               />
-              {translations && !!line.translation && <Text style={styles.translation}>{line.translation}</Text>}
+              {translations && !!line.translation && (
+                <Text style={styles.translation}>
+                  {translationMarks[index].reduce<React.ReactNode[]>((parts, range, at, all) => [
+                    ...parts,
+                    line.translation!.slice(at ? all[at - 1].end : 0, range.start),
+                    <Text key={at} style={styles.translationMark}>{line.translation!.slice(range.start, range.end)}</Text>,
+                  ], [])}
+                  {line.translation.slice(translationMarks[index].at(-1)?.end ?? 0)}
+                </Text>
+              )}
             </View>
           </Pressable>
         ))}
@@ -390,41 +498,70 @@ export function VideoScreen({ video, conversation, settings, saved, discussed, o
             <Text style={[styles.afterText, { color: stage.background }]}>{discussed ? "Continue discussion" : "Start discussion"}</Text>
           </Pressable>
           <View style={styles.afterRow}>
-            <Pressable accessibilityRole="button" onPress={() => rehearse(onPractise)} style={({ pressed }) => [styles.afterButton, pressed && { opacity: 0.7 }]}>
-              <BookOpen color={stage.text} size={18} />
-              <Text style={styles.afterText}>Practise</Text>
-            </Pressable>
-            <Pressable accessibilityRole="button" onPress={() => rehearse(onRecord)} style={({ pressed }) => [styles.afterButton, pressed && { opacity: 0.7 }]}>
-              <Camera color={stage.text} size={18} />
-              <Text style={styles.afterText}>Record</Text>
+            <Pressable accessibilityRole="button" onPress={() => { stopGlide(); setPlaying(false); onRead(); }}
+              style={({ pressed }) => [styles.afterButton, pressed && { opacity: 0.7 }]}>
+              <Mic color={stage.text} size={18} />
+              <Text style={styles.afterText}>Live reading</Text>
             </Pressable>
           </View>
-          <Pressable accessibilityRole="button" onPress={() => { stopGlide(); holding.current = null; setWaiting(false); setPlaying(false); onRead(); }}
-            style={({ pressed }) => [styles.afterButton, { flex: 0 }, pressed && { opacity: 0.7 }]}>
-            <Mic color={stage.text} size={18} />
-            <Text style={styles.afterText}>Live reading</Text>
-          </Pressable>
         </View>}
       </ScrollView>
-      {waiting && (
-        <View style={styles.prompt}>
-          <Text style={styles.promptText}>Your turn. Say the line, then carry on.</Text>
-          <Pressable accessibilityRole="button" onPress={() => playFrom(current)} style={styles.again}>
-            <RotateCcw color={stage.text} size={16} />
-            <Text style={styles.againText}>Hear it again</Text>
-          </Pressable>
+      {/* The learner's face, in the picture while a take is being recorded. */}
+      {taking && camera?.granted && (
+        <View pointerEvents="none" style={styles.face}>
+          <CameraView style={StyleSheet.absoluteFill} facing="front" mode="picture" mute />
         </View>
       )}
+      {take === "on" || take === "stopping" ? (
+        <View style={styles.prompt}>
+          <Animated.View style={[styles.light, { opacity: light }]} />
+          <Text style={styles.promptText}>{take === "on" ? "Recording. Say each line as it lights up." : "Finishing the recording…"}</Text>
+        </View>
+      ) : typeof take === "object" || take === "saving" ? (
+        <View style={styles.prompt}>
+          <Text style={styles.promptText}>{take === "saving" ? "Saving to your Photos…" : `Your take is ready (${clock(Math.round(take.durationMs / 1000))}).`}</Text>
+          {typeof take === "object" && (
+            <>
+              <Pressable accessibilityRole="button" onPress={() => void keepTake()} style={styles.keep}><Text style={styles.keepText}>Save to Photos</Text></Pressable>
+              <Pressable accessibilityRole="button" onPress={dropTake} style={styles.drop}><Text style={styles.dropText}>Discard</Text></Pressable>
+            </>
+          )}
+        </View>
+      ) : lineWords.length ? (
+        // The saved words in the line being spoken, with what they mean.
+        <View style={[styles.prompt, { flexDirection: "column", alignItems: "stretch", gap: 4 }]}>
+          {lineWords.map((word) => (
+            <Text key={word.phrase} style={[styles.promptText, { flex: 0 }]}>
+              <Text style={styles.lookedPhrase}>{word.phrase}</Text>{"  "}{word.meaning}
+            </Text>
+          ))}
+        </View>
+      ) : practising ? (
+        <View style={styles.prompt}>
+          <Text style={styles.promptText}>Practising: the sound is off. Say each line as it lights up.</Text>
+        </View>
+      ) : null}
+      {/* One bar for watching and practising alike, always in the same place. */}
       <SafeAreaView edges={["bottom"]} style={styles.bar}>
-        <Control icon={X} label="Close video" onPress={onClose} />
-        <Control icon={Repeat} label={repeat ? "Repeat mode on: the video stops after each line" : "Turn on repeat mode"} active={repeat}
-          onPress={() => { holding.current = null; setWaiting(false); setRepeat(!repeat); }} />
-        <Control icon={Snail} label={slow ? "Normal speed" : "Slower speech"} active={slow} onPress={() => setSlow(!slow)} />
-        {hasTranslations && <Control icon={Languages} label={translations ? "Hide translations" : "Show translations"} active={translations} onPress={() => setTranslations(!translations)} />}
-        <Control icon={RotateCcw} label="Hear this line again" onPress={() => playFrom(current)} />
-        <Pressable accessibilityRole="button" accessibilityLabel={waiting ? "Next line" : playing ? "Pause" : "Play"}
+        <Control icon={X} label="Close video" disabled={taking} onPress={onClose} />
+        {/* Outward from play: back, translate, practise, record. */}
+        {screenRecording.available && (
+          <Pressable accessibilityRole="button" accessibilityLabel={take === "on" ? "Stop recording" : "Record yourself practising"}
+            disabled={!lines.length || (take !== "off" && take !== "on")} hitSlop={6}
+            onPress={() => void (take === "on" ? stopTake() : startTake())}
+            style={({ pressed }) => [styles.record, (pressed || !lines.length || (take !== "off" && take !== "on")) && { opacity: 0.4 }]}>
+            {take === "on" ? <Square color={stage.record} fill={stage.record} size={16} /> : <Circle color={stage.record} fill={stage.record} size={20} />}
+          </Pressable>
+        )}
+        <Control icon={practising ? VolumeX : Mic} label={practising ? "Stop practising: turn the sound back on" : "Practise: mute the video and say the lines yourself"}
+          active={practising} disabled={!lines.length || taking} onPress={() => setPractising(!practising)} />
+        <Control icon={Languages} label={!hasTranslations ? "This video has no translations" : translations ? "Hide translations" : "Show translations"}
+          active={translations} disabled={!hasTranslations} onPress={() => setTranslations(!translations)} />
+        {/* Back sits beside play, where the thumb already is. */}
+        <Control icon={RotateCcw} label="Back a line" onPress={back} />
+        <Pressable accessibilityRole="button" accessibilityLabel={playing ? "Pause" : "Play"}
           onPress={toggle} style={({ pressed }) => [styles.play, pressed && { opacity: 0.7 }]}>
-          {waiting ? <SkipForward color={stage.background} size={24} /> : playing ? <Pause color={stage.background} size={24} /> : <Play color={stage.background} size={24} />}
+          {playing ? <Pause color={stage.background} size={24} /> : <Play color={stage.background} size={24} />}
         </Pressable>
       </SafeAreaView>
       {selection && (
@@ -460,11 +597,18 @@ const styles = StyleSheet.create({
   afterPrimary: { backgroundColor: stage.line, borderColor: stage.line },
   afterText: { color: stage.text, fontFamily: fonts.sans, fontSize: 16, fontWeight: "600" },
   currentLine: { backgroundColor: "#2F2C25" },
+  translationMark: { color: stage.line, fontWeight: "600" },
+  record: { width: 42, height: 42, borderRadius: 21, alignItems: "center", justifyContent: "center", borderWidth: 1.5, borderColor: stage.dim },
+  light: { width: 12, height: 12, borderRadius: 6, backgroundColor: stage.record },
+  face: { position: "absolute", right: 12, bottom: 150, width: 104, height: 138, borderRadius: 14, overflow: "hidden", borderWidth: 2, borderColor: stage.text, backgroundColor: "#000", zIndex: 5 },
+  keep: { paddingVertical: 8, paddingHorizontal: 12, borderRadius: 16, backgroundColor: stage.line },
+  keepText: { color: stage.background, fontFamily: fonts.sans, fontSize: 14, fontWeight: "700" },
+  drop: { paddingVertical: 8, paddingHorizontal: 10, borderRadius: 16, borderWidth: 1, borderColor: stage.dim },
+  dropText: { color: stage.text, fontFamily: fonts.sans, fontSize: 14, fontWeight: "600" },
+  lookedPhrase: { color: stage.line, fontFamily: fonts.serif, fontSize: 18, fontWeight: "600" },
   translation: { marginTop: 2, color: stage.dim, fontFamily: fonts.sans, fontSize: 14, lineHeight: 20 },
   prompt: { flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 10, paddingHorizontal: 18, backgroundColor: "#3A3320" },
   promptText: { flex: 1, color: stage.text, fontFamily: fonts.sans, fontSize: 15, lineHeight: 21 },
-  again: { flexDirection: "row", alignItems: "center", gap: 6, paddingVertical: 6, paddingHorizontal: 10, borderRadius: 16, borderWidth: 1, borderColor: stage.dim },
-  againText: { color: stage.text, fontFamily: fonts.sans, fontSize: 13, fontWeight: "600" },
   bar: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 18, paddingTop: 10, paddingBottom: 14, backgroundColor: stage.bar },
   play: { width: 54, height: 54, borderRadius: 27, alignItems: "center", justifyContent: "center", backgroundColor: stage.line },
 });

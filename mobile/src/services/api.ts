@@ -58,6 +58,14 @@ export async function replyWithCorrections(
   learnerName?: string,
   // The video being discussed, with the words saved from it.
   video?: VideoPractice,
+  // Whether the partner may ask which forms to use for the learner. Only an
+  // ordinary turn of conversation says yes, and only until it has been asked.
+  askSpeaker = false,
+  // The words saved in this conversation, so the partner knows them.
+  lexicon?: { phrase: string; meaning: string }[],
+  // In a video's discussion: a prepared question the partner may ask next.
+  suggestedQuestion?: string,
+  suggestedAgain = false,
 ): Promise<{ text: string; corrections?: string; meant?: string; speaker?: "male" | "female" }> {
   if (settings.mode === "demo" && video) return { text: "Sign in to talk about this video with your partner." };
   if (settings.mode === "demo") return { text: await demoOrRoleplay(messages, settings, grammar, roleplay) };
@@ -67,11 +75,38 @@ export async function replyWithCorrections(
     messages: chatTurns(messages),
     settings,
     ...(learnerName && !settings.speaker ? { learnerName: learnerName.slice(0, 60) } : {}),
+    askSpeaker: askSpeaker && !settings.speaker,
+    ...(lexicon?.length && !video && !practice && !grammar && !roleplay ? { lexicon: scriptWords(lexicon, 60) } : {}),
+    ...(suggestedQuestion ? { suggestedQuestion: suggestedQuestion.slice(0, 600), ...(suggestedAgain ? { suggestedAgain: true } : {}) } : {}),
     ...(practice ? { practice } : {}),
     ...(grammar ? { grammar } : {}),
     ...(roleplay ? { roleplay } : {}),
     ...(video ? { video } : {}),
   });
+  return finished(result);
+}
+// Which of the learner's saved words would suit an answer to the partner's
+// question: its own request, made after the reply has been shown. The answer
+// is one or two lines of "word — meaning", or nothing.
+export async function partnerHints(question: string, words: { phrase: string; meaning: string }[], settings: Settings): Promise<string> {
+  if (settings.mode !== "api" || !words.length) return "";
+  return (await call<{ hints?: string }>({ action: "hints", settings, question: question.slice(0, 4000), words: scriptWords(words, 60) })).hints ?? "";
+}
+// Questions for a video's discussion, one for each saved word, each made from
+// the sentence the word came from. Written once and kept with the discussion.
+// Which video they are for is sent along, so that the questions suit the kind
+// of video it is: a film scene, people talking about their lives, a documentary.
+export async function videoQuestions(
+  items: { phrase: string; meaning: string; sentence: string }[],
+  settings: Settings,
+  video: { youtubeId: string; title: string },
+): Promise<string[]> {
+  if (settings.mode !== "api" || !items.length) return [];
+  return (await call<{ questions: string[] }>({
+    action: "questions", settings, items: items.slice(0, 30), video: { youtubeId: video.youtubeId, title: video.title.slice(0, 200) },
+  }, writerTimeout)).questions ?? [];
+}
+function finished(result: { text: string; corrections?: string; meant?: string; speaker?: "male" | "female" }) {
   // The app shows plain text, so emphasis markers a model adds anyway are dropped.
   return {
     text: stripEmphasis(result.text),
@@ -116,7 +151,7 @@ export async function summarizeConversation(
   ).text;
 }
 // The chat as the server needs it: recent turns, without what the app keeps for itself.
-const chatTurns = (messages: Message[], most = 40) => messages.slice(-most).map(({ corrections, meant, ...message }) => message);
+const chatTurns = (messages: Message[], most = 40) => messages.slice(-most).map(({ corrections, meant, hints, translation, ...message }) => message);
 // Step one of the conversation script: what the learner said, as one blurb in
 // their own language. Pass the earlier draft and their feedback to revise it.
 export async function conversationOutline(

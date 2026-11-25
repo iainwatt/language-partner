@@ -19,8 +19,9 @@ export type SelectableMessageProps = {
   accentColor?: string;
   // Called as the learner starts and stops highlighting words.
   onSelecting?: (active: boolean) => void;
-  // A short tap on the text. A long press still starts a selection.
-  onPress?: () => void;
+  // A short tap on the text, with the position in the text of the character
+  // tapped, or -1 where it missed the letters. A long press still starts a selection.
+  onPress?: (index: number) => void;
   onSelect: (range: PhraseRange) => void;
 };
 type NativeProps = ViewProps & {
@@ -32,7 +33,7 @@ type NativeProps = ViewProps & {
   textColor: string;
   accentColor: string;
   onSelecting: (event: { nativeEvent: { active: boolean } }) => void;
-  onTap: () => void;
+  onTap: (event: { nativeEvent: { index?: number } }) => void;
   onSavePhrase: (event: { nativeEvent: PhraseSelectionEvent }) => void;
   onContentHeight: (event: { nativeEvent: { height: number } }) => void;
 };
@@ -63,7 +64,7 @@ export function SelectableMessage({
       textColor={textColor}
       accentColor={accentColor}
       onSelecting={({ nativeEvent }) => onSelecting?.(nativeEvent.active)}
-      onTap={() => onPress?.()}
+      onTap={({ nativeEvent }) => onPress?.(typeof nativeEvent.index === "number" ? nativeEvent.index : -1)}
       onContentHeight={({ nativeEvent }) => {
         if (Number.isFinite(nativeEvent.height) && nativeEvent.height > 0)
           setHeight(Math.ceil(nativeEvent.height));

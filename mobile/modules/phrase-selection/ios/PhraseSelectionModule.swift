@@ -112,7 +112,7 @@ final class PhraseSelectionView: ExpoView, UITextViewDelegate, UIGestureRecogniz
     textView.delegate = self
     textView.savePhrase = { [weak self] in self?.saveSelection() }
     // A short tap is passed on; a long press still starts a selection.
-    let tap = UITapGestureRecognizer(target: self, action: #selector(tapped))
+    let tap = UITapGestureRecognizer(target: self, action: #selector(tapped(_:)))
     tap.delegate = self
     tap.cancelsTouchesInView = false
     textView.addGestureRecognizer(tap)
@@ -198,11 +198,22 @@ final class PhraseSelectionView: ExpoView, UITextViewDelegate, UIGestureRecogniz
     shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer
   ) -> Bool { true }
 
-  // A tap that only dismisses a selection is not passed on.
-  @objc private func tapped() {
+  // A tap that only dismisses a selection is not passed on. The character
+  // under the finger is sent with it, or -1 where the tap missed the text.
+  @objc private func tapped(_ recognizer: UITapGestureRecognizer) {
     guard !selecting, textView.selectedRange.length == 0,
       Date().timeIntervalSince(selectionEnded) > 0.6 else { return }
-    onTap([:])
+    var index = -1
+    let point = recognizer.location(in: textView)
+    let manager = textView.layoutManager
+    let container = textView.textContainer
+    if manager.numberOfGlyphs > 0 {
+      let glyph = manager.glyphIndex(for: point, in: container)
+      let box = manager.boundingRect(forGlyphRange: NSRange(location: glyph, length: 1), in: container)
+      // A little slack around the letter, for fingers.
+      if box.insetBy(dx: -4, dy: -4).contains(point) { index = manager.characterIndexForGlyph(at: glyph) }
+    }
+    onTap(["index": index])
   }
 
   // Tell the screen when words are being highlighted, so it can hold still.

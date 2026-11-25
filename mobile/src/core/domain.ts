@@ -52,6 +52,12 @@ export const messageSchema = z.object({
   // On a partner's message: what the learner meant in the turn it answers, in
   // their own language. Never shown; the conversation script is written from these.
   meant: z.string().max(2000).optional(),
+  // On a partner's message: one or two of the learner's saved words that would
+  // suit an answer to it, shown as a prompt beneath. Never spoken.
+  hints: z.string().max(600).optional(),
+  // On a partner's message: the same thing in the learner's own language, made
+  // by a step of its own after the reply. Shown beneath; never spoken.
+  translation: z.string().max(8000).optional(),
 });
 export type Message = z.infer<typeof messageSchema>;
 export const documentIdSchema = z.string().regex(/^[a-zA-Z0-9_-]{1,128}$/);
@@ -105,6 +111,17 @@ export const conversationSchema = z.object({
   roleplay: roleplayPracticeSchema.optional(),
   // The one discussion of a "Watch and repeat" video. Its words are those saved from the video.
   video: z.object({ youtubeId: z.string().regex(/^[A-Za-z0-9_-]{6,20}$/), title: z.string().max(200) }).optional(),
+  // For a video's discussion: questions prepared from the sentences its saved
+  // words came from, one for each word. `at` is where in the video the word
+  // comes, in seconds, so they can be asked in the order of the video; `times`
+  // is how often the partner has put the question.
+  questions: z.array(z.object({
+    phrase: z.string().max(300),
+    meaning: z.string().max(300),
+    question: z.string().max(600),
+    at: z.number().min(0).optional(),
+    times: z.number().int().min(0).optional(),
+  })).max(400).optional(),
 });
 export type Conversation = z.infer<typeof conversationSchema>;
 export const gradeSchema = z.enum(["again", "hard", "good", "easy"]);
@@ -163,12 +180,19 @@ export const settingsSchema = z.object({
   // Whether the learner speaks as a man or a woman, which many languages need
   // to get first-person forms right. The partner asks in the first chat.
   speaker: z.enum(["male", "female"]).optional(),
+  // The partner has put that question to the learner. It is asked once, ever.
+  speakerAsked: z.boolean().optional(),
+  // How well the learner speaks each language they practise, as they judge it.
+  // Given to the partner as context; absent means it is left to the partner.
+  level: z.record(z.string(), z.enum(["beginner", "lower intermediate", "intermediate", "upper intermediate", "advanced"])).optional(),
   // Words a minute at which a script scrolls in practice mode.
   readingSpeed: z.number().int().min(20).max(300).optional(),
 });
 export type Settings = z.infer<typeof settingsSchema>;
+export const levels = ["beginner", "lower intermediate", "intermediate", "upper intermediate", "advanced"] as const;
+export type Level = (typeof levels)[number];
 const writingSystems: Record<string, string> = { ru: "cyrillic", ja: "japanese" };
-const writingSystem = (code: string) => writingSystems[code.split("-")[0]] ?? "latin";
+export const writingSystem = (code: string) => writingSystems[code.split("-")[0]] ?? "latin";
 // Translations under the partner's lines default to on only when the learner
 // cannot read the practice language's script from their own.
 export const translatesReplies = (

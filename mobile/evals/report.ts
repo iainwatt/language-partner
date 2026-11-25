@@ -51,7 +51,7 @@ export function report(versions: string[], cases: EvalCase[], runs: Run[], repea
     ],
   );
   const scoredCheck = (testCase: EvalCase): CheckName | undefined =>
-    testCase.kind === "slip" ? "slip left alone" : testCase.kind === "error" ? "error corrected" : testCase.kind === "clean" ? "clean turn untouched" : undefined;
+    testCase.kind === "slip" ? "slip left alone" : testCase.kind === "error" ? "error corrected" : testCase.kind === "clean" ? "clean turn untouched" : testCase.kind === "stuck" ? "word supplied" : undefined;
   const perCase = table(
     ["Case", "Checks", ...versions],
     cases.map((testCase) => [

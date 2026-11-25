@@ -164,24 +164,36 @@ export const llm = onCall(
     let failed = false;
     try {
       eventId = await beginUsage(request.auth.uid, selection.provider, selection.model, input.action, input.trackPractice === true);
-      // A discussion of a video: the transcript comes from the library, never
-      // from the app. Without it the discussion goes ahead on the title alone.
-      if (input.action === "generate" && input.video) {
-        let transcript: string | undefined;
-        try {
-          // The library first, then the learner's own saved videos.
-          for (const path of [`videos/${input.settings.target}/items/${input.video.youtubeId}`, `users/${request.auth.uid}/videos/${input.video.youtubeId}`]) {
-            const found = await getFirestore().doc(path).get();
-            const video = videoSchema.safeParse({ ...found.data(), id: found.id });
-            if (video.success && video.data.lines.length) { transcript = transcriptForPartner(video.data.lines); break; }
+      // Opening the discussion of a video: the partner is told in a few
+      // sentences what the video is about. That summary is made once for each
+      // video and kept; the transcript it is made from comes from the library
+      // or the learner's own videos, never from the app.
+      const summaryPath = (input.action === "generate" || input.action === "questions") && input.video
+        ? `videoSummaries/${input.settings.target}_${input.video.youtubeId}` : undefined;
+      if ((input.action === "generate" || input.action === "questions") && input.video) {
+        const { transcript: _transcript, summary: _summary, ...video } = input.video;
+        let about: { summary?: string; transcript?: string } = {};
+        // Needed to open a discussion, and to write its questions.
+        if (input.action === "questions" || !input.messages.some((message) => message.role === "assistant")) {
+          try {
+            const kept = (await getFirestore().doc(summaryPath!).get()).get("summary");
+            if (typeof kept === "string" && kept.trim()) about = { summary: kept.slice(0, 1200) };
+            else
+              for (const path of [`videos/${input.settings.target}/items/${video.youtubeId}`, `users/${request.auth.uid}/videos/${video.youtubeId}`]) {
+                const found = await getFirestore().doc(path).get();
+                const stored = videoSchema.safeParse({ ...found.data(), id: found.id });
+                if (stored.success && stored.data.lines.length) { about = { transcript: transcriptForPartner(stored.data.lines) }; break; }
+              }
+          } catch {
+            logError("Could not read a video for its discussion", { video: video.youtubeId });
           }
-        } catch {
-          logError("Could not read a video's transcript", { video: input.video.youtubeId });
         }
-        const { transcript: _supplied, ...rest } = input.video;
-        input.video = { ...rest, ...(transcript ? { transcript } : {}) };
+        if (input.action === "generate") input.video = { ...input.video, ...video, transcript: undefined, summary: undefined, ...about };
+        else input.video = { ...video, ...about };
       }
-      const { fixes, natural, ...result } = { fixes: undefined, natural: undefined, ...(await executeLlm(input, keys, fetch, (value) => { observation = value; })) };
+      const { fixes, natural, videoSummary, ...result } = { fixes: undefined, natural: undefined, videoSummary: undefined, ...(await executeLlm(input, keys, fetch, (value) => { observation = value; })) };
+      if (videoSummary && summaryPath) await getFirestore().doc(summaryPath).set({ summary: videoSummary, at: new Date().toISOString() }).catch(() => {});
+
       if (fixes && input.action === "generate") {
         // Losing a log entry must never cost the learner their reply.
         try {

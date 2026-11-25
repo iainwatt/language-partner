@@ -3,6 +3,8 @@ import { chatPromptV1 } from "./chat.v1";
 import { chatPromptV2 } from "./chat.v2";
 import { chatPromptV3 } from "./chat.v3";
 import { chatPromptV4 } from "./chat.v4";
+import { chatPromptV5 } from "./chat.v5";
+import { chatPromptV6 } from "./chat.v6";
 import { scriptPromptV1 } from "./script.v1";
 import { scriptPromptV2 } from "./script.v2";
 import { scriptPromptV3 } from "./script.v3";
@@ -15,17 +17,21 @@ import { reviewPromptV0 } from "./review.v0";
 import { annotateV0 } from "./annotate.v0";
 import { meaningsPromptV0 } from "./meanings.v0";
 import { restsPromptV0 } from "./rests.v0";
+import { stepsV0 } from "./steps.v0";
+import { stepsV1 } from "./steps.v1";
 import { summaryV0 } from "./summary.v0";
 import { summaryV1 } from "./summary.v1";
 import { summaryV2 } from "./summary.v2";
 import { summaryV3 } from "./summary.v3";
 
 // Every version, each in its own chat.vN.ts file, so the eval can run any of them.
-export const chatPrompts = { v0: chatPromptV0, v1: chatPromptV1, v2: chatPromptV2, v3: chatPromptV3, v4: chatPromptV4 };
+export const chatPrompts = { v0: chatPromptV0, v1: chatPromptV1, v2: chatPromptV2, v3: chatPromptV3, v4: chatPromptV4, v5: chatPromptV5, v6: chatPromptV6 };
 export type ChatPromptVersion = keyof typeof chatPrompts;
 
 // The version the app uses. Change this one line to switch, or to switch back.
-export const chatPromptVersion: ChatPromptVersion = "v4";
+// v6 added rules against echoing and for supplying a word. They were patches
+// for trouble the surrounding instructions had caused, and are not used.
+export const chatPromptVersion: ChatPromptVersion = "v5";
 export const chatPrompt = chatPrompts[chatPromptVersion];
 
 // The conversation script. First a summary in the learner's own language,
@@ -51,6 +57,10 @@ export const annotatePrompt = annotatePrompts[annotatePromptVersion];
 export const meaningsPrompts = { v0: meaningsPromptV0 };
 export const meaningsPromptVersion: keyof typeof meaningsPrompts = "v0";
 export const meaningsPrompt = meaningsPrompts[meaningsPromptVersion];
+
+// The small jobs done beside a conversation, each as a request of its own.
+export const stepPrompts = { v0: stepsV0, v1: stepsV1 };
+export const stepPrompt = stepsV1;
 
 // The end of each sentence in the learner's own language, for the practice prompter.
 export const restsPrompts = { v0: restsPromptV0 };

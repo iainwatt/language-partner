@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { levels, type Level } from "../core/domain";
 import { Platform, Switch, Text, View } from "react-native";
 import Constants from "expo-constants";
 import { c, fonts, Label } from "./components";
@@ -17,7 +18,7 @@ const helpTopics = {
 } as const;
 type HelpTopic = keyof typeof helpTopics;
 
-export function SettingsScreen({ email, nativeLanguage, targetLanguage, targetLanguageCode = "ru-RU", autoSpeak, translateReplies, speaker, onSpeaker, entryCount, conversationCount, dictionaryConnected, busy, notice, localTest, subscriptionLabel, onSubscription, onClose, onFeedback, onGoogle, googleLinked = false, onLanguages, onAutoSpeak, onTranslateReplies, onSignOut, onSignIn }: {
+export function SettingsScreen({ email, nativeLanguage, targetLanguage, targetLanguageCode = "ru-RU", autoSpeak, translateReplies, speaker, onSpeaker, level, onLevel, entryCount, conversationCount, dictionaryConnected, busy, notice, localTest, subscriptionLabel, onSubscription, onClose, onFeedback, onGoogle, googleLinked = false, onLanguages, onAutoSpeak, onTranslateReplies, onSignOut, onSignIn }: {
   email?: string;
   nativeLanguage: string;
   targetLanguage: string;
@@ -26,6 +27,9 @@ export function SettingsScreen({ email, nativeLanguage, targetLanguage, targetLa
   translateReplies: boolean;
   speaker?: "male" | "female";
   onSpeaker: (speaker?: "male" | "female") => void;
+  // How well the learner speaks the language being practised, as they judge it.
+  level?: Level;
+  onLevel: (level?: Level) => void;
   entryCount: number;
   conversationCount: number;
   dictionaryConnected: boolean;
@@ -63,10 +67,12 @@ export function SettingsScreen({ email, nativeLanguage, targetLanguage, targetLa
           {email && onGoogle && <SettingsSection title="Sign-in">
             <SettingsRow title="Google sign-in" value={googleLinked ? "Linked" : "Link account"} onPress={googleLinked ? undefined : onGoogle} />
           </SettingsSection>}
-          <SettingsSection title="General" footer="Many languages use different word forms for men and women. Your partner asks once in your first chat; tap to change it.">
+          <SettingsSection title="General" footer="Your partner pitches what it says to your level; tap to change it. Many languages use different word forms for men and women, so your partner needs to know which to use for you.">
             <SettingsRow title="Languages" value={`${nativeLanguage} → ${targetLanguage}`} onPress={onLanguages} />
             <SettingsRow title="I speak as" value={speaker === "male" ? "A man" : speaker === "female" ? "A woman" : "Not set"}
               onPress={busy ? undefined : () => onSpeaker(speaker === "male" ? "female" : speaker === "female" ? undefined : "male")} />
+            <SettingsRow title={`My level in ${targetLanguage}`} value={level ? level[0].toUpperCase() + level.slice(1) : "Not set"}
+              onPress={busy ? undefined : () => onLevel(level ? levels[levels.indexOf(level) + 1] : levels[0])} />
           </SettingsSection>
           <SettingsSection title="Voice" footer="Read your partner’s replies aloud after you speak.">
             <SettingsRow title="Read replies aloud" trailing={

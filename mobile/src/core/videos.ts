@@ -171,6 +171,8 @@ export const videoPracticeSchema = z.object({
   title: z.string().max(200),
   words: z.array(z.object({ phrase: z.string().max(300), meaning: z.string().max(300) })).max(60).default([]),
   transcript: z.string().max(12000).optional(),
+  // A few sentences on what the video is about, also added by the server.
+  summary: z.string().max(1200).optional(),
 });
 export type VideoPractice = z.infer<typeof videoPracticeSchema>;
 export function videoPractice(conversation: Conversation, entries: Entry[]): VideoPractice | undefined {
@@ -257,4 +259,56 @@ export function savedFromLink(youtube: string, details: { title: string; channel
     title: details.title.trim().slice(0, 200) || "YouTube video",
     ...(details.channel?.trim() ? { channel: details.channel.trim().slice(0, 200) } : {}),
   });
+}
+
+// Where the meanings of the learner's saved words appear in a line's
+// translation, for marking them there too. A saved meaning often lists a few
+// ways of putting it ("flat, apartment"; "to understand"); each is looked for.
+// Only a word-for-word appearance can be found.
+export function meaningRanges(translation: string, meanings: string[]): { start: number; end: number }[] {
+  const ways = meanings.flatMap((meaning) =>
+    meaning
+      .replace(/\([^)]*\)/g, " ")
+      .split(/[,;/]|\bor\b/i)
+      .map((way) => way.trim().replace(/^(to|a|an|the)\s+/i, "").replace(/[.!?]+$/, "").trim())
+      .filter((way) => way.length >= 2));
+  return savedRanges(translation, ways);
+}
+
+export type PreparedQuestion = NonNullable<Conversation["questions"]>[number];
+// For the saved words that have no question yet: each with the sentence of
+// the video it came from and where in the video that is, earliest first. The
+// sentence is the example saved with the word where there is one, and
+// otherwise the first line of the transcript that contains it.
+export function wordsNeedingQuestions(conversation: Conversation, entries: Entry[], video?: Video) {
+  const have = new Set((conversation.questions ?? []).map((item) => item.phrase.toLowerCase()));
+  const flat = (text: string) => text.replace(/\s+/g, " ").trim().toLowerCase();
+  return entries
+    .filter((entry) => entry.conversationIds.includes(conversation.id) && entry.phrase.length <= 300 && !have.has(entry.phrase.toLowerCase()))
+    .flatMap((entry) => {
+      const example = entry.example?.text.trim() ?? "";
+      const line = (example ? video?.lines.find((item) => flat(item.text).includes(flat(example))) : undefined)
+        ?? video?.lines.find((item) => savedRanges(item.text, [entry.phrase]).length);
+      const sentence = example || line?.text.trim() || "";
+      return sentence ? [{ phrase: entry.phrase, meaning: entry.meaning.slice(0, 300), sentence: sentence.slice(0, 600), ...(line ? { at: line.start } : {}) }] : [];
+    })
+    // Words not found in the transcript go last.
+    .sort((a, b) => (a.at ?? Infinity) - (b.at ?? Infinity));
+}
+// The next prepared question for the partner to ask: the one put least often,
+// and among those the earliest in the video. So they are gone through in the
+// order of the video, and then again from the start.
+export function nextQuestion(conversation: Conversation): PreparedQuestion | undefined {
+  return [...(conversation.questions ?? [])].sort((a, b) => (a.times ?? 0) - (b.times ?? 0) || (a.at ?? Infinity) - (b.at ?? Infinity))[0];
+}
+const stems = (text: string) =>
+  (text.toLowerCase().replace(/ё/g, "е").match(/[\p{L}\p{N}]+/gu) ?? []).filter((word) => word.length >= 3).map((word) => word.slice(0, 5));
+// Whether the partner's reply put the prepared question, in its own words or
+// ours: enough of the question's words are in the reply, allowing for changed
+// endings. A question being asked again is expected to be reworded, so less is asked of it.
+export function asksQuestion(reply: string, question: string, again = false): boolean {
+  const wanted = [...new Set(stems(question))];
+  if (wanted.length < 2 || !/[?？]/.test(reply)) return false;
+  const said = new Set(stems(reply));
+  return wanted.filter((word) => said.has(word)).length / wanted.length >= (again ? 0.4 : 0.6);
 }

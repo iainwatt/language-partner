@@ -8,7 +8,8 @@ export const managedPartner = { provider: "openai" as const, model: providers.op
 export const managedWriter = { provider: "openai" as const, model: providers.openai.models[1] };
 // Glossing a script's saved words, or its sentence endings, is a small job; it goes to the quicker model.
 export const managedModel = (action: string, step?: string) =>
-  (action === "outline" || action === "script" || action === "review") && step !== "meanings" && step !== "rests" ? managedWriter : managedPartner;
+  // A video's questions are written once and asked many times, so they get the larger model too.
+  (action === "outline" || action === "script" || action === "review" || action === "questions") && step !== "meanings" && step !== "rests" ? managedWriter : managedPartner;
 export function managedSettings(settings: Settings, signedIn: boolean): Settings {
   return { ...settings, ...managedPartner, mode: signedIn ? "api" : "demo" };
 }

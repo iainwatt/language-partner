@@ -66,3 +66,14 @@ test("replies are stored without emphasis markers but otherwise unchanged", () =
     "А, поняла 🙂\n\nОна убегает от меня.\n- sky → Скай\n2 * 3 * 4",
   );
 });
+
+test("only the language being learned is said aloud when a reply carries both", async () => {
+  const { spokenInTarget } = await import("../src/core/speechText");
+  const reply = "Тебе понравилось видео?\nDid you like the video?\n\nя идти → я иду (present tense)\nКак зовут Sabrina?";
+  assert.equal(spokenInTarget(reply, "ru-RU", "en-US"), "Тебе понравилось видео?\n\nя идти → я иду\nКак зовут Sabrina?");
+  // A message wholly in the learner's language has nothing to say aloud.
+  assert.equal(spokenInTarget("Which forms should I use for you?", "ru-RU", "en-US"), "");
+  // Where both languages share a script they cannot be told apart, and nothing is dropped.
+  assert.equal(spokenInTarget("¿Te gustó?\nDid you like it?", "es-ES", "en-US"), "¿Te gustó?\nDid you like it?");
+  assert.equal(spokenInTarget("ビデオは好きでしたか？\nDid you like the video?", "ja-JP", "en-US"), "ビデオは好きでしたか？");
+});

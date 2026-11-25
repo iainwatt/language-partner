@@ -25,14 +25,15 @@ export function useActivity(uid: string | undefined, report: (message: string) =
   return activity;
 }
 
-// Logging is best effort: a lost record must never get in the learner's way.
+// A sitting too short to be practice is not logged, and that is not a
+// failure. One that should have been logged and was not is reported: a
+// recording that never reaches the stats would otherwise go missing in silence.
 export async function logActivity(uid: string | undefined, input: Omit<Activity, "id" | "createdAt">) {
-  if (!uid || uid.includes("/") || input.durationMs < shortestActivity) return;
-  try {
-    const record = activitySchema.parse({ ...input, durationMs: Math.round(input.durationMs), id: id(), createdAt: new Date().toISOString() });
-    await commit(uid, (database) => [{
-      update: { name: `${database}/documents/users/${uid}/activity/${record.id}`, fields: firestoreFields(record) },
-      currentDocument: { exists: false },
-    }]);
-  } catch {}
+  if (!(input.durationMs >= shortestActivity)) return;
+  if (!uid || uid.includes("/")) throw new Error("You are not signed in.");
+  const record = activitySchema.parse({ ...input, durationMs: Math.round(input.durationMs), id: id(), createdAt: new Date().toISOString() });
+  await commit(uid, (database) => [{
+    update: { name: `${database}/documents/users/${uid}/activity/${record.id}`, fields: firestoreFields(record) },
+    currentDocument: { exists: false },
+  }]);
 }

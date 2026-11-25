@@ -90,8 +90,24 @@ class PhraseSelectionView(context: Context, appContext: AppContext) : ExpoView(c
       }
     }
     // A short tap is passed on; a long press still starts a selection.
+    // The character under the finger is sent with it, or -1 where the tap missed the text.
+    var touchX = 0f
+    var touchY = 0f
+    textView.setOnTouchListener { _, event ->
+      touchX = event.x
+      touchY = event.y
+      false
+    }
     textView.setOnClickListener {
-      if (!textView.hasSelection() && System.currentTimeMillis() - selectionEnded > 600) onTap(mapOf<String, Any>())
+      if (!textView.hasSelection() && System.currentTimeMillis() - selectionEnded > 600) {
+        val layout = textView.layout
+        var index = -1
+        if (layout != null && touchY >= 0 && touchY <= layout.height) {
+          val line = layout.getLineForVertical(touchY.toInt())
+          if (touchX >= layout.getLineLeft(line) && touchX <= layout.getLineRight(line)) index = textView.getOffsetForPosition(touchX, touchY)
+        }
+        onTap(mapOf("index" to index))
+      }
     }
     addView(textView, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
   }

@@ -2,7 +2,7 @@ import { splitCorrections, type SplitReply } from "../src/core/corrections";
 
 export type EvalCase = {
   id: string;
-  kind: "slip" | "error" | "clean" | "ambiguous";
+  kind: "slip" | "error" | "clean" | "ambiguous" | "stuck";
   about: string;
   history: { role: "user" | "assistant"; text: string }[];
   turn: string;
@@ -12,13 +12,17 @@ export type EvalCase = {
   errors?: { said: string; better: string[] }[];
   // For ambiguous cases: the form whose treatment is reported.
   watch?: string;
+  // For stuck cases: the learner says they do not know a word. Any one of
+  // these, the likely words they want, must be offered in the reply.
+  offers?: string[];
 };
 export type CheckName =
   | "format"
   | "plain text"
   | "slip left alone"
   | "error corrected"
-  | "clean turn untouched";
+  | "clean turn untouched"
+  | "word supplied";
 export type Verdict = {
   // true or false for each check that applies to this kind of case.
   checks: Partial<Record<CheckName, boolean>>;
@@ -74,6 +78,9 @@ export function judge(testCase: EvalCase, raw: string): Verdict {
       ),
     );
   if (testCase.kind === "clean") checks["clean turn untouched"] = !fixes.length && !reply.shown;
+  // A stem is enough: the word may be offered in any of its forms.
+  if (testCase.kind === "stuck")
+    checks["word supplied"] = testCase.offers!.some((word) => plain(visible).includes(plain(word)));
   return {
     checks,
     observed: {

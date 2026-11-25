@@ -66,6 +66,8 @@ import {
   type GrammarTopic,
 } from "./src/core/grammar";
 import { addTalkTime, assignEarlierTalkTime } from "./src/core/stats";
+import { spokenInTarget } from "./src/core/speechText";
+import { writingSystem } from "./src/core/domain";
 import { grammarAccentRanges } from "./src/core/grammarAccent";
 import { audio } from "./src/services/nativeAudio";
 import {
@@ -78,6 +80,8 @@ import {
   conversationScript,
   scriptMeanings,
   scriptRests,
+  partnerHints,
+  videoQuestions,
 } from "./src/services/api";
 import { AuthProvider, useAuth, signOut } from "./src/services/auth";
 import { emulatorHost } from "./src/services/firebase";
@@ -96,7 +100,7 @@ import { defaultReadingSpeed, meaningKey, restKey } from "./src/core/practice";
 import { PracticeScreen } from "./src/ui/PracticeScreen";
 import { VideoScreen, VideosScreen } from "./src/ui/VideoScreen";
 import { removeVideo, useAdmin, useVideos } from "./src/services/videos";
-import { addedToday, linksPerDay, linkVideoEntries, makeVideoConversation, savedFromLink, videoContext, videoContextId, videoPractice, youtubeId, type Video } from "./src/core/videos";
+import { addedToday, asksQuestion, linksPerDay, linkVideoEntries, makeVideoConversation, nextQuestion, savedFromLink, videoContext, videoContextId, videoPractice, wordsNeedingQuestions, youtubeId, type Video } from "./src/core/videos";
 import { RecordScreen } from "./src/ui/RecordScreen";
 import { ReadingScreen, type ReadingSource } from "./src/ui/ReadingScreen";
 import { saveReading, useReadings } from "./src/services/readings";
@@ -123,6 +127,10 @@ import { GrammarReminderSheet } from "./src/ui/GrammarReminderSheet";
 import { GrammarScreen } from "./src/ui/GrammarScreen";
 import { LevelCard, PracticeOverview, TalkTimeOverview } from "./src/ui/TalkTimeOverview";
 import { logActivity, useActivity } from "./src/services/activity";
+import { useDays } from "./src/services/days";
+import { TodayScreen } from "./src/ui/TodayScreen";
+import { badges as allBadges, conversationDays, dayOf, shadowingByDay, shadowingDays, streak } from "./src/core/streaks";
+import { practiceTotals } from "./src/core/activity";
 import { watchGrammarTopics } from "./src/services/grammar";
 import { usePartnerUsage } from "./src/services/usePartnerUsage";
 import { DisplayText, DisplayTypography } from "./src/ui/DisplayText";
@@ -136,6 +144,7 @@ import { inactiveAccess } from "./src/core/conversationAccess";
 import { isPaywallError } from "./src/services/conversationAccess";
 
 type Tab =
+  | "home"
   | "chat"
   | "dictionary"
   | "practice"
@@ -178,9 +187,10 @@ function AccountGate() {
   if ((user && !user.emailVerified) || (!user && !guest)) return <AuthScreen />;
   return <LanguagePartner key={user?.uid ?? "guest"} />;
 }
-// The reply is spoken first, then the corrections shown beneath it.
-const spokenMessage = (text: string, corrections?: string) =>
-  corrections ? `${text}\n\n${corrections}` : text;
+// The reply is spoken first, then the corrections shown beneath it. Only the
+// language being learned is said aloud: a translation under a line is for reading.
+const spokenMessage = (text: string, corrections: string | undefined, languages: { target: string; native: string }) =>
+  spokenInTarget(corrections ? `${text}\n\n${corrections}` : text, languages.target, languages.native);
 function LanguagePartner() {
   const [notice, setNotice] = useState("");
   const report = useCallback((message: string) => setNotice(message), []);
@@ -198,11 +208,21 @@ function LanguagePartner() {
   const issues = useIssues(account?.uid, report);
   const readings = useReadings(account?.uid, report);
   const activity = useActivity(account?.uid, report);
+  const days = useDays(account?.uid, report);
+  // The video discussions whose questions are being written just now.
+  const preparing = useRef(new Set<string>());
   const [liveReading, setLiveReading] = useState<ReadingSource | null>(null);
   const [watching, setWatching] = useState<Video | null>(null);
   const [restartingVideo, setRestartingVideo] = useState(false);
   const videoPhrases = useMemo(
     () => (watching && data ? data.entries.filter((entry) => entry.target === watching.language).map((entry) => entry.phrase) : []),
+    [watching, data],
+  );
+  // What each of those phrases means, for showing when one is tapped in a transcript.
+  const videoMeanings = useMemo(
+    () => (watching && data
+      ? Object.fromEntries(data.entries.filter((entry) => entry.target === watching.language).map((entry) => [meaningKey(entry.phrase), entry.meaning]))
+      : {}),
     [watching, data],
   );
   const [scriptBusy, setScriptBusy] = useState<{ id: string; step: "outline" | "script" } | null>(null);
@@ -227,7 +247,8 @@ function LanguagePartner() {
   const latestSaved = useRef<SavedConversation[]>([]);
   latestSaved.current = data?.savedConversations ?? [];
   const [issueSheet, setIssueSheet] = useState<Issue | "new" | null>(null);
-  const [tab, setTab] = useState<Tab>("chat");
+  // The app opens on Today: the streaks, and what to do next to keep them.
+  const [tab, setTab] = useState<Tab>("home");
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [panel, setPanel] = useState<Panel>(null);
   const [languageChoice, setLanguageChoice] = useState({ native: "en-US", target: "ru-RU" });
@@ -523,6 +544,9 @@ function LanguagePartner() {
       report(error.message ?? "The sentences could not be translated.");
     }
   }
+  // Said when practice was done but could not be written to the learner's stats.
+  const notLogged = (what: string) => (error: any) =>
+    report(`Your ${what} could not be added to your stats: ${error?.message ?? "the save failed"}`);
   // A video is kept like a saved conversation once anything is saved from it or said about it.
   const withVideoContext = (previous: typeof workspaceData & {}, video: Video) =>
     previous.savedConversations.some((context) => context.id === videoContextId(video.youtubeId))
@@ -631,12 +655,19 @@ function LanguagePartner() {
         ];
         await updateConversation(messages);
         draft("");
+        // A turn said aloud counts toward the day's conversation; a typed one does not.
+        if (spoke.current) days.addSpokenTurn();
       }
       if (
         conversation.practiceOf &&
         (!contextsReady || !dictionaryReady || !activeContext)
       )
         throw new Error("Wait for your saved conversation and words to load");
+      // Which forms to use for the learner is asked once, ever, not in every conversation.
+      const askSpeaker = !data!.settings.speaker && !data!.settings.speakerAsked;
+      // In a video's discussion the partner is offered a question prepared from
+      // what the learner saved, in place of the whole list of their words.
+      const prepared = conversation.video ? nextQuestion({ ...conversation, messages }) : undefined;
       const { text: answer, corrections, meant, speaker } = await replyWithCorrections(
         messages,
         settings,
@@ -646,15 +677,24 @@ function LanguagePartner() {
         conversation.grammar,
         conversation.roleplay,
         account?.displayName?.trim().split(/\s+/)[0],
-        videoPractice(conversation, data!.entries),
+        // A video's discussion is an ordinary chat once it has been opened.
+        undefined,
+        askSpeaker,
+        // In an ordinary chat the partner is told what the learner has saved in it.
+        conversation.video ? undefined : contextEntries(data!.entries, contextId(conversation)),
+        prepared?.question,
+        !!prepared?.times,
       );
+      const replyId = id();
+      // The partner put the prepared question: its word is the hint, and it is not offered again.
+      const asked = prepared && asksQuestion(answer, prepared.question, !!prepared.times) ? prepared : undefined;
       // The partner asked, or worked out, whether the learner is a man or a woman.
-      if (speaker && speaker !== data!.settings.speaker)
-        await mutate((p) => ({ ...p, settings: { ...p.settings, speaker } }));
+      if ((speaker && speaker !== data!.settings.speaker) || askSpeaker)
+        await mutate((p) => ({ ...p, settings: { ...p.settings, ...(speaker ? { speaker } : {}), ...(askSpeaker ? { speakerAsked: true } : {}) } }));
       await updateConversation([
         ...messages,
         {
-          id: id(),
+          id: replyId,
           role: "assistant",
           text: answer,
           final: true,
@@ -662,10 +702,15 @@ function LanguagePartner() {
           ...(settings.mode === "api" ? { provider: settings.provider } : {}),
           ...(corrections ? { corrections } : {}),
           ...(meant ? { meant } : {}),
+          ...(asked ? { hints: `${asked.phrase} — ${asked.meaning}` } : {}),
         },
       ]);
+      if (asked)
+        await mutate((previous) => ({ ...previous, conversations: previous.conversations.map((item) => item.id !== conversation.id ? item
+          : { ...item, questions: item.questions?.map((question) => (question.phrase === asked.phrase ? { ...question, times: (question.times ?? 0) + 1 } : question)) }) }));
+      afterReply(conversation, replyId, answer);
       if (spoke.current && settings.autoSpeak)
-        await audio.play("chat", spokenMessage(answer, corrections), conversation.target);
+        await audio.play("chat", spokenMessage(answer, corrections, conversation), conversation.target);
       spoke.current = false;
     } catch (e: any) {
       if (isPaywallError(e)) openPaywall();
@@ -729,6 +774,55 @@ function LanguagePartner() {
       return linked ? { ...previous, entries, savedConversations: withVideoContext(previous, video) } : previous;
     }).catch(() => {});
   }
+  // What is added to a reply once it is on screen, each by a request of its
+  // own: its translation, and any of the learner's saved words that would suit
+  // an answer. Neither holds the conversation up, and a failure of either
+  // simply leaves the reply as it is. Lessons and roleplays lay out their own
+  // translations and are left alone.
+  function afterReply(chat: Conversation, messageId: string, text: string) {
+    if (settings.mode !== "api" || chat.practiceOf || chat.grammar || chat.roleplay) return;
+    const languages = { ...settings, native: chat.native, target: chat.target };
+    const add = (fields: Partial<Message>) => mutate((previous) => ({
+      ...previous,
+      conversations: previous.conversations.map((item) => item.id !== chat.id ? item
+        : { ...item, messages: item.messages.map((message) => (message.id === messageId ? { ...message, ...fields } : message)) }),
+    })).catch(() => {});
+    if (translatesReplies(languages))
+      void translate(text, chat.target, chat.native, [], languages)
+        .then((translation) => { if (translation?.trim() && translation.trim() !== text.trim()) void add({ translation: translation.trim().slice(0, 8000) }); })
+        .catch(() => {});
+    // A video's discussion has its questions prepared, each with its word; more
+    // are made as the conversation goes on. An ordinary chat, with its few saved
+    // words, has them looked through for one that suits the question just asked.
+    if (chat.video) return void prepareQuestions(chat);
+    const words = contextEntries(data!.entries, contextId(chat));
+    if (words.length && /[?？]/.test(text))
+      void partnerHints(text, words, languages).then((hints) => { if (hints) void add({ hints }); }).catch(() => {});
+  }
+  // Write questions for the saved words of a video that have none yet, a batch
+  // at a time. Each is made from the sentence its word was saved from.
+  async function prepareQuestions(chat: Conversation) {
+    if (!chat.video || settings.mode !== "api" || preparing.current.has(chat.id)) return;
+    const video = allVideos.find((item) => item.youtubeId === chat.video!.youtubeId);
+    const missing = wordsNeedingQuestions(chat, data!.entries, video).slice(0, 30);
+    if (!missing.length) return;
+    preparing.current.add(chat.id);
+    try {
+      const questions = await videoQuestions(missing.map(({ at: _at, ...word }) => word), { ...settings, native: chat.native, target: chat.target }, chat.video);
+      await mutate((previous) => ({ ...previous, conversations: previous.conversations.map((item) => {
+        if (item.id !== chat.id) return item;
+        const have = item.questions ?? [];
+        const fresh = missing.flatMap((word, index) =>
+          questions[index] && !have.some((old) => old.phrase === word.phrase)
+            ? [{ phrase: word.phrase, meaning: word.meaning, question: questions[index], ...(word.at === undefined ? {} : { at: word.at }) }] : []);
+        return { ...item, questions: [...have, ...fresh].slice(0, 400) };
+      }) }));
+    } catch {
+      // Left for the next turn to try again.
+    } finally {
+      preparing.current.delete(chat.id);
+    }
+  }
   // The one discussion of a video: opened if it exists, started if not.
   async function discussVideo(video: Video) {
     if (trial.blocked && data!.settings.mode === "api") { openPaywall(); return; }
@@ -758,13 +852,15 @@ function LanguagePartner() {
       const { text: answer } = await replyWithCorrections([{
         id: id(), role: "user", text: "I have just watched the video. Start the conversation.", final: true, createdAt: new Date().toISOString(),
       }], openingSettings, undefined, undefined, undefined, undefined, videoPractice(next, data!.entries));
+      const openingId = id();
       await mutate((previous) => ({ ...previous, conversations: previous.conversations.map((item) =>
         item.id === next.id && !item.messages.length ? { ...item, messages: [{
-          id: id(), role: "assistant" as const, text: answer, final: true, createdAt: new Date().toISOString(),
+          id: openingId, role: "assistant" as const, text: answer, final: true, createdAt: new Date().toISOString(),
           ...(openingSettings.mode === "api" ? { provider: openingSettings.provider } : {}),
         }] } : item,
       ) }));
-      if (openingSettings.autoSpeak) await audio.play("chat", answer, next.target);
+      afterReply(next, openingId, answer);
+      if (openingSettings.autoSpeak) await audio.play("chat", spokenMessage(answer, undefined, next), next.target);
     } catch (error: any) {
       if (isPaywallError(error)) openPaywall();
       else report(`Your partner could not start the discussion: ${error.message ?? String(error)}. Say something to begin.`);
@@ -778,7 +874,9 @@ function LanguagePartner() {
     await audio.stop();
     const cleared = { ...conversation, messages: [] };
     await updateConversation([]);
-    await mutate((previous) => ({ ...previous, conversations: previous.conversations.map((item) => item.id === cleared.id ? { ...item, title: conversation.video!.title } : item) }));
+    // The prepared questions are kept, and can all be asked again.
+    await mutate((previous) => ({ ...previous, conversations: previous.conversations.map((item) => item.id === cleared.id
+      ? { ...item, title: conversation.video!.title, questions: item.questions?.map(({ times: _times, ...question }) => question) } : item) }));
     draft("");
     await openVideoDiscussion(cleared);
   }
@@ -795,7 +893,7 @@ function LanguagePartner() {
       }] } : item,
     ) }));
     setNotice("");
-    if (openingSettings.autoSpeak) await audio.play("chat", answer, next.target);
+    if (openingSettings.autoSpeak) await audio.play("chat", spokenMessage(answer, undefined, next), next.target);
   }
   async function startGrammar(topic: GrammarTopic) {
     if (trial.blocked && data!.settings.mode === "api") { openPaywall(); return; }
@@ -867,7 +965,7 @@ function LanguagePartner() {
     }));
     setNotice("");
     if (openingSettings.autoSpeak)
-      await audio.play("chat", answer, next.target);
+      await audio.play("chat", spokenMessage(answer, undefined, next), next.target);
   }
   async function openConversation(id: string) {
     preserveTranscriptPosition.current = false;
@@ -958,7 +1056,19 @@ function LanguagePartner() {
   // it is saved from the sheet or opened. Later changes are the learner's call.
   function outlineIfMissing(context: SavedConversation) {
     if (settings.mode !== "api" || context.outline || scriptBusy || !latestContextChat(context)?.messages.some((message) => message.role === "user")) return;
-    void scriptWork(context, "outline").catch((error) => report(`Could not summarise the conversation: ${error.message ?? String(error)}`));
+    // This summary is started for the learner, not by them, and takes a minute
+    // or more. If the connection drops part-way (the phone locking is enough),
+    // it is tried once more, and a second failure is said quietly: it will be
+    // tried again the next time the conversation is opened.
+    const dropped = (error: any) => /^(internal|unavailable|deadline-exceeded)\b/i.test(String(error?.code ?? error?.message ?? "").replace(/^functions\//, ""));
+    void scriptWork(context, "outline")
+      .catch((error) => {
+        if (!dropped(error)) throw error;
+        return new Promise((resolve) => setTimeout(resolve, 3000)).then(() => scriptWork(context, "outline"));
+      })
+      .catch((error) => report(dropped(error)
+        ? "The summary of this conversation did not finish. It will be tried again when you next open it."
+        : `Could not summarise the conversation: ${error.message ?? String(error)}`));
   }
   function openContext(context: SavedConversation) {
     setContextSheet(context);
@@ -1083,6 +1193,7 @@ function LanguagePartner() {
     account && !savedDataConnected
       ? { loaded: dictionaryReady && contextsReady }
       : undefined;
+  const lastPartnerMessageId = conversation.messages.findLast((message) => message.role === "assistant")?.id;
   const hasConversationTitle = tab === "chat" && Boolean(
     conversation.messages.length || conversation.practiceOf || conversation.grammar || conversation.roleplay || activeContext,
   );
@@ -1111,6 +1222,8 @@ function LanguagePartner() {
                       ? "Things to work on"
                     : tab === "videos"
                       ? "Watch and repeat"
+                    : tab === "home"
+                      ? "Language Partner"
                     : tab === "stats"
                       ? "My stats"
                       : "Practice"}
@@ -1242,27 +1355,63 @@ function LanguagePartner() {
                       }}
                     />
                   </View>
+                  {/* The same thing in the learner's own language: for reading, never read aloud. */}
+                  {!!message.translation && <Text selectable style={styles.translationText}>{message.translation}</Text>}
                   {!!message.corrections && (
                     <View accessible accessibilityLabel={`Corrections. ${message.corrections}`} style={styles.corrections}>
                       <Text style={s.eyebrow}>Corrections</Text>
                       <Text selectable style={styles.correctionsText}>{message.corrections}</Text>
                     </View>
                   )}
+                  {/* Saved words that would suit an answer, under the newest question only:
+                      once it has been answered they have done their job. */}
+                  {!!message.hints && message.id === lastPartnerMessageId && conversation.messages.at(-1)?.id === message.id && (
+                    // Plainly, straight after the question: the word in bold, then what it means.
+                    <View accessible accessibilityLabel={`Words you could use. ${message.hints}`} style={styles.hints}>
+                      {message.hints.split("\n").map((line) => {
+                        const [phrase, ...rest] = line.split(/\s+[—–-]\s+/);
+                        return (
+                          <Text key={line} selectable style={styles.hintText}>
+                            <Text style={styles.hintWord}>{phrase}</Text>{rest.length ? `  ${rest.join(" — ")}` : ""}
+                          </Text>
+                        );
+                      })}
+                    </View>
+                  )}
                   {message.role === "assistant" && (
-                    <Button
-                      small
-                      icon={Volume2}
-                      iconColor={c.muted}
-                      label="Read message aloud"
-                      style={styles.messageAction}
-                      onPress={() =>
-                        void audio.play(
-                          "chat",
-                          spokenMessage(message.text, message.corrections),
-                          conversation.target,
-                        )
-                      }
-                    />
+                    <View style={[s.row, { alignItems: "center" }]}>
+                      <Button
+                        small
+                        icon={Volume2}
+                        iconColor={c.muted}
+                        label="Read message aloud"
+                        style={styles.messageAction}
+                        onPress={() =>
+                          void audio.play(
+                            "chat",
+                            spokenMessage(message.text, message.corrections, conversation),
+                            conversation.target,
+                          )
+                        }
+                      />
+                      {/* Under the newest of the partner's lines, while it is giving translations:
+                          the way to stop them. Where the two languages are written differently
+                          it is offered only on a line that has one. */}
+                      {message.id === lastPartnerMessageId && translatesReplies(settings)
+                        && (!!message.translation || writingSystem(conversation.target) === writingSystem(conversation.native)
+                          || spokenInTarget(message.text, conversation.target, conversation.native) !== message.text.trim()) && (
+                        <Pressable
+                          accessibilityRole="button"
+                          hitSlop={8}
+                          onPress={() => void mutate((p) => ({
+                            ...p, settings: { ...p.settings, translateReplies: { ...p.settings.translateReplies, [settings.target]: false } },
+                          })).then(() => report("Translations are off from the next reply. You can turn them back on in this conversation's settings."))
+                            .catch((error) => report(error.message))}
+                        >
+                          <Label muted style={{ fontSize: 13, textDecorationLine: "underline" }}>Turn off translations</Label>
+                        </Pressable>
+                      )}
+                    </View>
                   )}
                 </View>
               ))}
@@ -1478,6 +1627,57 @@ function LanguagePartner() {
                   </Button>
                 </View>
               ))}
+          </ScrollView>
+        ) : tab === "home" ? (
+          <ScrollView contentContainerStyle={styles.page}>
+            {(() => {
+              // Streaks and badges are for the language being practised.
+              const mine = readings.filter((reading) => reading.language === conversation.target);
+              const done = activity.filter((item) => item.language === conversation.target);
+              const shadowing = streak(shadowingDays(mine, done), day);
+              const talking = streak(conversationDays(days.tallies), day);
+              const totals = practiceTotals(mine, done);
+              return (
+                <TodayScreen
+                  pageTitleStyle={styles.pageTitle}
+                  account={!!account}
+                  shadowing={shadowing}
+                  conversation={talking}
+                  shadowedMs={shadowingByDay(mine, done)[day] ?? 0}
+                  spokenTurns={days.tallies.find((tally) => tally.day === day)?.spokenTurns ?? 0}
+                  wordsToday={data.entries.filter((entry) => dayOf(entry.createdAt) === day).length}
+                  watchedMs={done.filter((item) => item.kind === "watch" && dayOf(item.createdAt) === day).reduce((sum, item) => sum + item.durationMs, 0)}
+                  talkedMs={liveStats.talkTimeByDay[day] ?? 0}
+                  allTime={{
+                    // Time in conversation in this language, where that is known; otherwise all of it.
+                    talkedMs: liveStats.talkTimeByLanguage?.[conversation.target] ?? liveStats.talkTimeMs,
+                    shadowedMs: Object.values(shadowingByDay(mine, done)).reduce((sum, ms) => sum + ms, 0),
+                    recordings: totals.recordings + mine.length,
+                    words: data.entries.length,
+                  }}
+                  badges={allBadges({
+                    shadowingBest: shadowing.best,
+                    conversationBest: talking.best,
+                    recordings: totals.recordings + mine.length,
+                    words: data.entries.length,
+                    watchMs: totals.video.watchMs,
+                  })}
+                  onSignIn={() => setGuest(false)}
+                  // The video watched most recently, if there is one; otherwise the list.
+                  onShadow={() => {
+                    const last = [...done].filter((item) => item.source === "video").sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0];
+                    const video = last && allVideos.find((item) => item.youtubeId === last.sourceId && item.lines.length);
+                    if (video) void openVideo(video);
+                    else changeTab("videos");
+                  }}
+                  onTalk={() => {
+                    const blank = !conversation.messages.length && !conversation.practiceOf && !conversation.grammar && !conversation.roleplay && !conversation.video;
+                    if (blank) changeTab("chat");
+                    else void safely(() => newChat());
+                  }}
+                />
+              );
+            })()}
           </ScrollView>
         ) : tab === "videos" ? (
           <ScrollView contentContainerStyle={styles.page}>
@@ -1900,6 +2100,8 @@ function LanguagePartner() {
             statsSelected={tab === "stats"}
             issuesSelected={tab === "issues"}
             onIssues={() => changeTab("issues")}
+            homeSelected={tab === "home"}
+            onHome={() => changeTab("home")}
             videosSelected={tab === "videos"}
             onVideos={() => changeTab("videos")}
             savedDataStatus={savedDataStatus}
@@ -2128,6 +2330,11 @@ function LanguagePartner() {
             onAutoSpeak={(value) => void safely(() => mutate((p) => ({
               ...p, settings: { ...p.settings, autoSpeak: value },
             })))}
+            level={data.settings.level?.[settings.target]}
+            onLevel={(level) => void safely(() => mutate((p) => {
+              const { [settings.target]: old, ...others } = p.settings.level ?? {};
+              return { ...p, settings: { ...p.settings, level: level ? { ...others, [settings.target]: level } : others } };
+            }))}
             speaker={data.settings.speaker}
             onSpeaker={(speaker) => void safely(() => mutate((p) => {
               const { speaker: old, ...rest } = p.settings;
@@ -2315,15 +2522,17 @@ function LanguagePartner() {
           conversation={conversation}
           settings={settings}
           saved={videoPhrases}
+          meanings={videoMeanings}
           onSave={(entry) => saveFromVideo(entry, watching)}
           discussed={data.conversations.some((item) => item.id === videoContextId(watching.youtubeId) && item.messages.length > 0)}
           onDiscuss={() => void safely(() => discussVideo(watching))}
-          onPractise={(script) => setRehearsal({ script, record: false })}
-          onRecord={(script) => setRehearsal({ script, record: true })}
+          onRecorded={(durationMs) => void logActivity(account?.uid, {
+            kind: "recording", source: "video", sourceId: watching.youtubeId, title: watching.title.slice(0, 200), language: watching.language, durationMs,
+          }).catch(notLogged("recording"))}
           onRead={() => setLiveReading({ kind: "video", video: watching, saved: videoPhrases })}
           onWatched={(durationMs) => void logActivity(account?.uid, {
             kind: "watch", source: "video", sourceId: watching.youtubeId, title: watching.title.slice(0, 200), language: watching.language, durationMs,
-          })}
+          }).catch(notLogged("watching time"))}
           report={report}
           onClose={() => setWatching(null)}
         />
@@ -2346,7 +2555,7 @@ function LanguagePartner() {
           : watching
             ? { source: "video" as const, sourceId: watching.youtubeId, title: watching.title.slice(0, 200), language: watching.language }
             : undefined;
-        return <RecordScreen {...shared} onRecorded={(durationMs) => { if (read) void logActivity(account?.uid, { kind: "recording", ...read, durationMs }); }} />;
+        return <RecordScreen {...shared} onRecorded={(durationMs) => { if (read) void logActivity(account?.uid, { kind: "recording", ...read, durationMs }).catch(notLogged("recording")); }} />;
       })()}
       {liveReading && (
         <ReadingScreen
@@ -2559,6 +2768,10 @@ const styles = StyleSheet.create({
     borderLeftWidth: 2,
     borderLeftColor: c.accent,
   },
+  hints: { alignSelf: "stretch", gap: 2 },
+  translationText: { alignSelf: "stretch", color: c.muted, fontFamily: fonts.serif, fontSize: 17, lineHeight: 25 },
+  hintText: { color: c.muted, fontFamily: fonts.serif, fontSize: 18, lineHeight: 27 },
+  hintWord: { color: c.ink, fontWeight: "700" },
   correctionsText: { color: c.ink, fontFamily: fonts.sans, fontSize: 15, lineHeight: 22 },
   notice: {
     paddingHorizontal: 20,

@@ -40,8 +40,9 @@ test("a reply without tags, or with an unclosed one, is never lost", () => {
 });
 
 test("the prompt in use tags corrections and hidden slips; earlier versions stay as shipped", () => {
-  // The app uses the newest version.
-  assert.equal(chatPromptVersion, Object.keys(chatPrompts).at(-1));
+  // The app uses the version that worked. v6 added rules against echoing and
+  // for supplying a word; they patched trouble made by other instructions.
+  assert.equal(chatPromptVersion, "v5");
   const prompt = chatPrompt("English", "Русский");
   assert.match(prompt, /Converse in Русский/);
   assert.match(prompt, /<corrections>\nthe learner's words → the corrected words \(short reason\)\n<\/corrections>/);
@@ -149,15 +150,15 @@ test("the hidden note of what was meant is split off, returned to the app and ne
 });
 
 test("the partner asks once whether the learner is a man or a woman, and the app remembers the answer", async () => {
-  const unknown = chatPrompt("English", "Русский", { name: "Iain" });
+  const unknown = chatPrompt("English", "Русский", { name: "Iain", ask: true });
   assert.match(unknown, /You do not yet know whether the learner is a man or a woman/);
-  assert.match(unknown, /ask once now/);
+  assert.match(unknown, /Ask once now/);
   assert.match(unknown, /Their name is Iain\. If that name makes the answer clear, do not ask openly/);
   assert.match(unknown, /<speaker>male<\/speaker> or <speaker>female<\/speaker>/);
-  assert.doesNotMatch(chatPrompt("English", "Русский"), /Their name is/);
+  assert.doesNotMatch(chatPrompt("English", "Русский", { ask: true }), /Their name is/);
   const known = chatPrompt("English", "Русский", { speaker: "female" });
   assert.match(known, /THE LEARNER is a woman/);
-  assert.doesNotMatch(known, /ask once now|<speaker>/);
+  assert.doesNotMatch(known, /Ask once now|<speaker>/);
 
   const reply = splitCorrections("Отлично! Тогда буду обращаться к тебе в мужском роде.\n<meant>Yes, I'm a man.</meant>\n<speaker>male</speaker>");
   assert.equal(reply.speaker, "male");
@@ -263,4 +264,52 @@ test("phrases saved before reviews existed can be checked once each, oldest firs
   const { suggestion, ...settled } = entries.find((entry) => entry.id === newer.id)!;
   assert.deepEqual(unreviewed([settled]), []);
   assert.match((await import("node:fs")).readFileSync("firestore.rules", "utf8"), /'reviewed' in d\) \|\| d.reviewed is bool/);
+});
+
+test("the question about the learner's forms is asked once, then never again", async () => {
+  const { chatInstruction } = await import("../server/llm");
+  const settings = { native: "en-US", target: "ru-RU", provider: "openai", model: "gpt-5.4-mini", mode: "api", autoSpeak: false } as const;
+  const instruction = (extra: object) => chatInstruction({ action: "generate", settings, messages: [], ...extra } as any);
+  assert.match(instruction({ askSpeaker: true }), /Ask once now/);
+  // An app from before the change sends nothing, and behaves as it did.
+  assert.match(instruction({}), /Ask once now/);
+  const told = instruction({ askSpeaker: false });
+  assert.doesNotMatch(told, /Ask once now/);
+  assert.match(told, /They have been asked before, so do not ask/);
+  assert.match(told, /<speaker>male<\/speaker>/);
+  const known = chatInstruction({ action: "generate", settings: { ...settings, speaker: "male" }, messages: [], askSpeaker: true } as any);
+  assert.match(known, /THE LEARNER is a man/);
+  assert.doesNotMatch(known, /Ask once now/);
+});
+
+test("hints from the learner's words are taken out of the reply and kept apart", async () => {
+  const reply = splitCorrections("А что ей больше всего нравится делать вместе?\nWhat does she like doing together most?\n<hints>\n- гулять вместе — to go for a walk together\n2. читать книги — to read books\n</hints>\n<meant>She is quite independent.</meant>");
+  assert.equal(reply.text, "А что ей больше всего нравится делать вместе?\nWhat does she like doing together most?");
+  assert.equal(reply.hints, "гулять вместе — to go for a walk together\nчитать книги — to read books");
+  assert.equal(reply.meant, "She is quite independent.");
+  assert.equal(splitCorrections("Привет!").hints, undefined);
+  assert.equal(splitCorrections("Привет! <hints>\n</hints>").hints, undefined);
+  const { chatInstruction } = await import("../server/llm");
+  const settings = { native: "en-US", target: "ru-RU", provider: "openai", model: "gpt-5.4-mini", mode: "api", autoSpeak: false } as const;
+  const told = chatInstruction({ action: "generate", settings, messages: [], lexicon: [{ phrase: "вместе", meaning: "together" }] } as any);
+  // The chat prompt is told the words as context and given no rules about them:
+  // choosing hints is a request of its own.
+  assert.match(told, /For context, these are words and phrases the learner has saved and is trying to learn: \["вместе"\]/);
+  assert.doesNotMatch(told, /HINTS|<hints>|THEIR WORDS|SHORT TURNS|TRANSLATION:/);
+  const { chosenHints } = await import("../src/core/corrections");
+  const theirs = [{ phrase: "вместе", meaning: "together" }, { phrase: "Гулять", meaning: "to go for a walk" }];
+  assert.equal(chosenHints('["гулять", "вместе", "площадка"]', theirs), "Гулять — to go for a walk\nвместе — together");
+  assert.equal(chosenHints("Here you go: [\"вместе\"]", theirs), "вместе — together");
+  assert.equal(chosenHints("[]", theirs), "");
+  assert.equal(chosenHints("none of them", theirs), "");
+  // A tag the model doubled, as it once did, leaves nothing behind in the message or the hints.
+  const doubled = splitCorrections("Что она любит?\n<hints>\n<hints>\nдеятельность — activity\n</hints>\n</hints>");
+  assert.equal(doubled.text, "Что она любит?");
+  assert.equal(doubled.hints, "деятельность — activity");
+  // Only the learner's own words are kept, allowing for a changed ending.
+  const { knownHints } = await import("../src/core/corrections");
+  const saved = [{ phrase: "деятельность" }, { phrase: "гулять вместе" }];
+  assert.equal(knownHints("детская площадка — playground\nдеятельности — activity\nгуляем — we walk", saved), "деятельности — activity\nгуляем — we walk");
+  assert.equal(knownHints("детская площадка — playground", saved), "");
+  assert.doesNotMatch(chatInstruction({ action: "generate", settings, messages: [] } as any), /saved and is trying to learn/);
 });

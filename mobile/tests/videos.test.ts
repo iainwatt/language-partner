@@ -137,12 +137,21 @@ test("a video has one discussion, whose lexicon is the words saved from it", asy
   assert.deepEqual(practice.words.map((item) => item.phrase).sort(), ["не понимаю", "сложно"]);
 
   const settings = { native: "en-US", target: "ru-RU", provider: "openai", model: "gpt-5.4-mini", mode: "api", autoSpeak: false } as const;
-  const instruction = chatInstruction({ action: "generate", settings, messages: [], video: { ...practice, transcript: "Я не понимаю русских девушек." } } as any);
-  assert.match(instruction, /VIDEO: The learner has just watched a video in /);
-  assert.match(instruction, /THEIR WORDS:/);
-  assert.match(instruction, /Never list them, quiz the learner/);
-  assert.ok(instruction.includes("Голландец импровизирует"));
-  assert.doesNotMatch(chatInstruction({ action: "generate", settings, messages: [], video: { ...practice, words: [] } } as any), /THEIR WORDS:/);
+  // Opening the discussion: the prompt as it always was, then plain facts. The
+  // video is described in a few sentences, never by its transcript.
+  const opening = chatInstruction({ action: "generate", settings: { ...settings, level: { "ru-RU": "lower intermediate" } }, messages: [], video: { ...practice, summary: "A Dutch comedian improvises in Russian.", transcript: "СЕКРЕТ" } } as any);
+  assert.match(opening, /The learner's level in .+ is lower intermediate\./);
+  // A video can have a hundred saved words, so its discussion is not given the list.
+  assert.doesNotMatch(opening, /saved and is trying to learn/);
+  assert.match(opening, /The learner has just watched a video in .+ called "Голландец импровизирует"\. What it is about: "A Dutch comedian improvises in Russian\."\. Start the conversation with one short question about it\./);
+  assert.doesNotMatch(opening, /СЕКРЕТ|SHORT TURNS|TRANSLATION:|HINTS|THEIR WORDS/);
+  // Once the partner has spoken, the video is not mentioned again: it is an ordinary chat.
+  const later = chatInstruction({ action: "generate", settings, messages: [{ id: "a", role: "assistant", text: "Тебе понравилось?", final: true, createdAt: "" }], video: practice } as any);
+  assert.doesNotMatch(later, /has just watched a video/);
+  // An ordinary chat is told the same two facts and nothing more.
+  const plain = chatInstruction({ action: "generate", settings, messages: [], lexicon: [{ phrase: "не понимаю", meaning: "I don't understand" }] } as any);
+  assert.ok(plain.includes("не понимаю"));
+  assert.doesNotMatch(plain, /level in|has just watched/);
 });
 
 test("caption tracks are read in both of the shapes YouTube sends", async () => {
@@ -220,4 +229,89 @@ test("subtitles read from the player become a transcript once the wanted languag
   reader.receive({ captions: { url: "https://www.youtube.com/api/timedtext?v=x&lang=ru&kind=asr&fmt=json3&tlang=en", body: track(["Hi", "How are you"]) } });
   assert.deepEqual(got, [[{ start: 0, text: "Привет", translation: "Hi" }, { start: 2, text: "Как дела", translation: "How are you" }]]);
   reader.stop();
+});
+
+test("saved meanings are found in a line's translation, in any of the ways they were put", async () => {
+  const { meaningRanges } = await import("../src/core/videos");
+  const line = "I don't understand why the flat is so cold.";
+  const found = meaningRanges(line, ["to understand", "apartment, flat (home)", "x"]);
+  assert.deepEqual(found.map((range) => line.slice(range.start, range.end)), ["understand", "flat"]);
+  assert.deepEqual(meaningRanges(line, ["warm"]), []);
+});
+
+test("a video's discussion is given prepared questions, each from the sentence a saved word came from", async () => {
+  const { asksQuestion, makeVideoConversation, nextQuestion, videoContextId, wordsNeedingQuestions } = await import("../src/core/videos");
+  const { saveEntry } = await import("../src/core/domain");
+  const { chatInstruction } = await import("../server/llm");
+  const video = videoSchema.parse({
+    id: "pyqW-FJwKDE", youtubeId: "pyqW-FJwKDE", title: "Sabrina", language: "ru-RU", createdAt: "2026-11-19T00:00:00.000Z",
+    lines: [{ start: 0, text: "Её любимая деятельность это детская площадка." }, { start: 4, text: "Она уже одевается сама." }],
+  });
+  const id = videoContextId(video.youtubeId);
+  let entries = saveEntry([], { phrase: "деятельность", meaning: "activity", native: "en-US", target: "ru-RU", conversationId: id, example: { text: "Её любимая деятельность", translation: "Her favourite activity" } }).entries;
+  entries = saveEntry(entries, { phrase: "одевается", meaning: "gets dressed", native: "en-US", target: "ru-RU", conversationId: id }).entries;
+  entries = saveEntry(entries, { phrase: "кошка", meaning: "cat", native: "en-US", target: "ru-RU" }).entries;
+  const chat = makeVideoConversation(video, "en-US");
+
+  // The saved example where there is one, otherwise the line of the transcript; words from elsewhere are left out.
+  assert.deepEqual(wordsNeedingQuestions(chat, entries, video).map((item) => [item.phrase, item.sentence]).sort(), [
+    ["деятельность", "Её любимая деятельность"],
+    ["одевается", "Она уже одевается сама."],
+  ]);
+  const question = { phrase: "деятельность", meaning: "activity", question: "Какое занятие твоя дочь любит больше всего?" };
+  const prepared = { ...chat, questions: [question] };
+  assert.deepEqual(wordsNeedingQuestions(prepared, entries, video).map((item) => item.phrase), ["одевается"]);
+
+  const said = (role: "user" | "assistant", text: string) => ({ id: text, role, text, final: true, createdAt: "" });
+  // In the order of the video, whatever order the words were saved in; then round again, least asked first.
+  const later = { phrase: "одевается", meaning: "gets dressed", question: "Что она уже делает сама?", at: 4 };
+  const earlier = { ...question, at: 0 };
+  assert.equal(nextQuestion({ ...chat, questions: [later, earlier] })?.phrase, "деятельность");
+  assert.equal(nextQuestion({ ...chat, questions: [later, { ...earlier, times: 1 }] })?.phrase, "одевается");
+  assert.equal(nextQuestion({ ...chat, questions: [{ ...later, times: 1 }, { ...earlier, times: 1 }] })?.phrase, "деятельность");
+  assert.equal(nextQuestion(chat), undefined);
+  // The words still to be given a question come in the order of the video too.
+  assert.deepEqual(wordsNeedingQuestions(chat, [...entries].reverse(), video).map((item) => [item.phrase, item.at]), [["деятельность", 0], ["одевается", 4]]);
+
+  assert.ok(asksQuestion("Понятно! А какое занятие твоя дочь любит больше всего?", question.question));
+  assert.ok(asksQuestion("А какие занятия любит твоя дочка больше всего?", question.question));
+  assert.ok(!asksQuestion("Здорово, что она любит площадку. Вы часто туда ходите?", question.question));
+  assert.ok(!asksQuestion("Какое занятие твоя дочь любит больше всего.", question.question));
+
+  const settings = { native: "en-US", target: "ru-RU", provider: "openai", model: "gpt-5.4-mini", mode: "api", autoSpeak: false } as const;
+  const history = [said("assistant", "Тебе понравилось видео?"), said("user", "Да")];
+  const told = chatInstruction({ action: "generate", settings, messages: history, suggestedQuestion: question.question, lexicon: [{ phrase: "деятельность", meaning: "activity" }] } as any);
+  assert.match(told, /go with them for a few turns at most and then come back to the questions\. The next question: "Какое занятие/);
+  assert.doesNotMatch(told, /asked it before/);
+  assert.match(chatInstruction({ action: "generate", settings, messages: history, suggestedQuestion: question.question, suggestedAgain: true } as any), /ask it again in different words/);
+  // Asked again, it will be reworded, so a looser likeness counts.
+  assert.ok(!asksQuestion("Чем она больше всего любит заниматься?", question.question));
+  assert.ok(asksQuestion("Чем она больше всего любит заниматься?", question.question, true));
+  // The question stands in for the list of words.
+  assert.doesNotMatch(told, /saved and is trying to learn/);
+});
+
+test("a video's questions are written from the angle its kind of video calls for", async () => {
+  const { executeLlm, llmRequestSchema } = await import("../server/llm");
+  const settings = { native: "en-US", target: "ru-RU", provider: "openai", model: "gpt-5.4", mode: "api", autoSpeak: false } as const;
+  const sent: any[] = [];
+  const transport = (async (_url: string, options: any) => {
+    const body = JSON.parse(options.body);
+    sent.push(body);
+    // The first request is for what the video is about; the second for the questions.
+    const text = sent.length === 1 ? "A couple talk about their daughter turning three. People talking about their own lives." : '["Что твой ребёнок уже делает сам?"]';
+    return { ok: true, status: 200, headers: new Headers(), json: async () => ({ output_text: text, output: [{ content: [{ type: "output_text", text }] }], usage: {} }), text: async () => "" };
+  }) as unknown as typeof fetch;
+  const request = llmRequestSchema.parse({
+    action: "questions", settings,
+    items: [{ phrase: "одевается", meaning: "gets dressed", sentence: "Она уже одевается сама." }],
+    video: { youtubeId: "pyqW-FJwKDE", title: "Sabrina Is Turning 3!", transcript: "Она уже одевается сама." },
+  });
+  const result: any = await executeLlm(request as any, { openai: "test-secret" }, transport);
+  assert.deepEqual(result.questions, ["Что твой ребёнок уже делает сам?"]);
+  // The account of the video is handed back to be kept, and was given to the question writer.
+  assert.match(result.videoSummary, /People talking about their own lives/);
+  const asked = JSON.stringify(sent[1]);
+  assert.ok(asked.includes("Sabrina Is Turning 3!") && asked.includes("People talking about their own lives"));
+  assert.ok(asked.includes("First consider what kind of video this is"));
 });

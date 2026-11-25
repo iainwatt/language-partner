@@ -7,6 +7,7 @@ import type { EvalCase } from "./checks";
 //   error     a real mistake that must be corrected
 //   clean     a correct turn that must draw no corrections
 //   ambiguous a form that could be either; nothing is scored, the outcome is reported
+//   stuck     the learner says they do not know a word; the partner must supply one
 const hello = { role: "assistant" as const, text: "Привет! О чём ты хочешь поговорить сегодня?" };
 
 export const russianCases: EvalCase[] = [
@@ -161,5 +162,29 @@ export const russianCases: EvalCase[] = [
     history: [hello],
     turn: "вчера я видел очень красивое здания в центре города",
     watch: "здания",
+  },
+  {
+    id: "stuck-playground",
+    kind: "stuck",
+    about: "The learner says they do not know what the things in a playground are called. The partner once answered only 'what thing is it?'.",
+    history: [
+      hello,
+      { role: "user", text: "Моя дочь любит детскую площадку." },
+      { role: "assistant", text: "Здорово! А во что она любит там играть?" },
+    ],
+    turn: "да я не знаю я не знаю имя для вещь в детский площадь",
+    offers: ["качел", "горк", "песочниц", "карусел"],
+  },
+  {
+    id: "stuck-says-so",
+    kind: "stuck",
+    about: "The learner says outright, half in English, that they do not know how to say 'to swim'.",
+    history: [
+      hello,
+      { role: "user", text: "Летом мы были на море." },
+      { role: "assistant", text: "Как хорошо! Что вы там делали?" },
+    ],
+    turn: "мы много я не знаю как сказать по-русски swim каждый день",
+    offers: ["плава", "купа"],
   },
 ];

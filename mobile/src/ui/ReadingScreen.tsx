@@ -13,6 +13,7 @@ import { clock, lineAt, markedLines, type Video } from "../core/videos";
 import { audio } from "../services/nativeAudio";
 import { startLiveTranscript, type LiveTranscript } from "../services/liveTranscript";
 import { fonts } from "./components";
+import { tellPlayer } from "./playerCommands";
 import { Control, nearestSpeed, Pieces, Prompter, stage, stepSpeed, useWordLevel, WordsStepper, type PrompterHandle } from "./Prompter";
 
 export type ReadingSource =
@@ -287,7 +288,8 @@ export function ReadingScreen({ source, speed, meanings, earlier, onMissing, onR
               {/* No sound, and no way to turn it on: the microphone must hear only the learner. */}
               <View pointerEvents="none">
                 <YoutubePlayer ref={player} height={Math.round((width * 9) / 16)} videoId={video.youtubeId} play mute
-                  onReady={() => player.current?.seekTo(startsAt, true)}
+                  // Muted and started by hand as well as by setting: see tellPlayer.
+                  onReady={() => tellPlayer(player.current, "player.mute(); player.playVideo()", startsAt)}
                   initialPlayerParams={{ start: Math.floor(startsAt), controls: false, cc_lang_pref: "xx", showClosedCaptions: false, rel: false, preventFullScreen: true }}
                   onChangeState={(state: string) => { if (state === "ended") void finish(true); }} />
               </View>
