@@ -52,6 +52,7 @@
     "check": "npm run typecheck && npm test",
     "eval": "node --import tsx evals/run.ts",
     "eval:script": "node --import tsx evals/run-script.ts",
+    "eval:review": "node --import tsx evals/run-review.ts",
     "build:functions": "esbuild server/index.ts --bundle --platform=node --target=node22 --format=cjs --outfile=functions/lib/index.js --external:firebase-admin/* --external:firebase-functions/*",
     "seed:grammar": "tsx scripts/seed-grammar.ts",
     "add:video": "tsx scripts/add-video.ts",

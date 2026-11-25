@@ -299,7 +299,9 @@ test("a video's questions are written from the angle its kind of video calls for
     const body = JSON.parse(options.body);
     sent.push(body);
     // The first request is for what the video is about; the second for the questions.
-    const text = sent.length === 1 ? "A couple talk about their daughter turning three. People talking about their own lives." : '["Что твой ребёнок уже делает сам?"]';
+    const text = sent.length === 1
+      ? "A couple talk about their daughter turning three. People talking about their own lives."
+      : JSON.stringify({ items: [{ phrase: "одевается", question: "Что твой ребёнок уже делает сам?" }] });
     return { ok: true, status: 200, headers: new Headers(), json: async () => ({ output_text: text, output: [{ content: [{ type: "output_text", text }] }], usage: {} }), text: async () => "" };
   }) as unknown as typeof fetch;
   const request = llmRequestSchema.parse({

@@ -157,12 +157,47 @@ test("the outline is written from the per-turn notes when the chat has them", ()
   assert.match(step.instruction, /The JSON gives either "notes"/);
 });
 
-test("the summary and script use the larger model; chat and translation keep the fast one", () => {
+test("the summary and script use the larger model; mechanical steps, chat and translation keep the fast one", () => {
   assert.equal(managedModel("outline").model, "gpt-5.4");
+  assert.equal(managedModel("outline", "write").model, "gpt-5.4");
+  assert.equal(managedModel("outline", "check").model, "gpt-5.4");
+  assert.equal(managedModel("outline", "check").effort, "medium");
+  assert.equal(managedModel("outline", "points").model, "gpt-5.4-mini");
+  assert.equal(managedModel("outline", "points").effort, "low");
   assert.equal(managedModel("script").model, "gpt-5.4");
+  assert.equal(managedModel("script", "cases").model, "gpt-5.4-mini");
+  assert.equal(managedModel("script", "cases").effort, "low");
+  assert.equal(managedModel("review").model, "gpt-5.4-mini");
+  assert.equal(managedModel("review").effort, "low");
   assert.equal(managedModel("generate").model, "gpt-5.4-mini");
+  assert.equal(managedModel("generate").effort, "low");
   assert.equal(managedModel("translate").model, "gpt-5.4-mini");
+  assert.equal(managedModel("translate").effort, "none");
   assert.ok(providers.openai.models.includes(managedModel("outline").model));
+});
+
+test("meanings and rests use Structured Outputs and map back to aligned arrays", async () => {
+  const settings = { ...initialSnapshot(false).settings, mode: "api" as const };
+  let body: any;
+  const answer = (request: unknown, payload: unknown) =>
+    executeLlm(llmRequestSchema.parse(request) as any, { openai: "test-secret" }, async (_url, options) => {
+      body = JSON.parse(String(options?.body));
+      return Response.json({ output: [{ content: [{ type: "output_text", text: JSON.stringify(payload) }] }] });
+    });
+  const meanings = (await answer(
+    { action: "script", step: "meanings", settings, text: "Мы живём в нашей квартире.", phrases: ["в нашей квартире"] },
+    { items: [{ phrase: "в нашей квартире", meaning: "in our flat" }] },
+  )) as { text: string };
+  assert.equal(body.text.format.name, "script_meanings");
+  assert.equal(body.reasoning.effort, "none");
+  assert.deepEqual(JSON.parse(meanings.text), ["in our flat"]);
+
+  const rests = (await answer(
+    { action: "script", step: "rests", settings, sentences: [{ start: "Мы живём", rest: "в нашей квартире." }] },
+    { items: [{ index: 0, meaning: "in our flat." }] },
+  )) as { text: string };
+  assert.equal(body.text.format.name, "script_rests");
+  assert.deepEqual(JSON.parse(rests.text), ["in our flat."]);
 });
 
 test("one paragraph of the summary can be changed or removed without touching the rest", () => {

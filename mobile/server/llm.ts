@@ -1,6 +1,6 @@
 import { roleplayPracticeSchema } from "../src/core/roleplayTypes";
 import { z } from "zod";
-import { managedPartner } from "../src/core/managedAi";
+import { managedFallbacks, managedModel, managedPartner } from "../src/core/managedAi";
 import {
   languageName,
   languages,
@@ -12,13 +12,35 @@ import {
   practiceCounterSchema,
   type Provider,
 } from "../src/core/domain";
-import { generate, type ProviderKeys, type ObserveUsage } from "./providers";
+import { generate, type GenerateOptions, type ProviderKeys, type ObserveUsage } from "./providers";
 import { practiceContextSchema } from "../src/core/practiceContext";
 import { videoPracticeSchema } from "../src/core/videos";
 import { grammarPracticeSchema } from "../src/core/grammar";
-import { annotatePrompt, chatPrompt, meaningsPrompt, restsPrompt, stepPrompt, reviewPrompt, scriptPrompt, summaryPrompt, translatePrompt, type SummaryPrompts } from "./prompts";
+import {
+  annotatePrompt,
+  chatPrompt,
+  meaningsPrompt,
+  meaningsPromptVersion,
+  restsPrompt,
+  restsPromptVersion,
+  reviewPrompt,
+  scriptPrompt,
+  stepPrompt,
+  summaryPrompt,
+  translatePrompt,
+  type SummaryPrompts,
+} from "./prompts";
+import {
+  chatSchemaFormat,
+  hintsSchemaFormat,
+  meaningsSchemaFormat,
+  naturalTranslateSchemaFormat,
+  questionsSchemaFormat,
+  restsSchemaFormat,
+  reviewSchemaFormat,
+} from "./schemas";
 import { scriptCases } from "../src/core/script";
-import { chosenHints, splitCorrections } from "../src/core/corrections";
+import { chosenHints, parseChatReply } from "../src/core/corrections";
 
 const language = z.enum(languages.map((item) => item.code));
 const settings = settingsSchema.extend({
@@ -232,15 +254,25 @@ export function outlineStep(input: Extract<LlmRequest, { action: "outline" }>, p
   const prompt = paragraph && prompts.reviseParagraph ? prompts.reviseParagraph : prompts[input.step];
   return { instruction: prompt(languageName(input.settings.native)), data: JSON.stringify(data) };
 }
-export function scriptStep(input: Extract<LlmRequest, { action: "script" }>, prompt = scriptPrompt, annotate = annotatePrompt) {
+export function scriptStep(
+  input: Extract<LlmRequest, { action: "script" }>,
+  prompt = scriptPrompt,
+  annotate = annotatePrompt,
+  rests = restsPrompt,
+  meanings = meaningsPrompt,
+) {
   const target = languageName(input.settings.target);
   // The text goes in as it is, not wrapped in JSON, so it can come back character for character.
   if (input.step === "cases") return { instruction: annotate.cases(target, scriptCases[input.settings.target] ?? []), data: input.text };
   if (input.step === "stress") return { instruction: annotate.stress(target), data: input.text };
-  if (input.step === "rests")
-    return { instruction: restsPrompt(languageName(input.settings.native), target), data: JSON.stringify({ sentences: input.sentences }) };
+  if (input.step === "rests") {
+    const sentences = restsPromptVersion === "v1" && rests === restsPrompt
+      ? input.sentences.map((item, index) => ({ index, ...item }))
+      : input.sentences;
+    return { instruction: rests(languageName(input.settings.native), target), data: JSON.stringify({ sentences }) };
+  }
   if (input.step === "meanings")
-    return { instruction: meaningsPrompt(languageName(input.settings.native), target), data: JSON.stringify({ text: input.text, phrases: input.phrases }) };
+    return { instruction: meanings(languageName(input.settings.native), target), data: JSON.stringify({ text: input.text, phrases: input.phrases }) };
   return {
     instruction: prompt(languageName(input.settings.native), languageName(input.settings.target), scriptCases[input.settings.target], input.settings.speaker),
     data: JSON.stringify({
@@ -317,6 +349,73 @@ Apply FIRST ASSISTANT TURN instructions only when the conversation has no assist
         : `\nTRANSLATIONS OFF: The learner has turned off translations of your lines. This overrides every instruction above and anything in the lesson or scenario data. Write each opener, question, example and task once, in ${languageName(input.settings.target)} only, with no ${languageName(input.settings.native)} translation below or beside it. Grammar explanations, brief corrections, recall cues and the roleplay recap may still use ${languageName(input.settings.native)} where instructed, and translate whenever the learner asks.`)
   );
 }
+const flatMatch = (text: string) => text.toLowerCase().replace(/ё/g, "е").replace(/\s+/g, " ").trim();
+
+function parseQuestions(answer: string, items: { phrase: string }[]): string[] | undefined {
+  const trimmed = answer.trim();
+  if (trimmed.startsWith("{")) {
+    try {
+      const obj = JSON.parse(trimmed) as { items?: { phrase?: unknown; question?: unknown }[] };
+      if (Array.isArray(obj?.items) && obj.items.length === items.length) {
+        return items.map((wanted, index) => {
+          const byPhrase = obj.items!.find((item) => typeof item?.phrase === "string" && flatMatch(item.phrase) === flatMatch(wanted.phrase));
+          const picked = byPhrase ?? obj.items![index];
+          return typeof picked?.question === "string" ? picked.question.trim().slice(0, 600) : "";
+        });
+      }
+    } catch {}
+  }
+  try {
+    const legacy = JSON.parse(answer.slice(answer.indexOf("["), answer.lastIndexOf("]") + 1));
+    if (Array.isArray(legacy) && legacy.length === items.length)
+      return legacy.map((question) => (typeof question === "string" ? question.trim().slice(0, 600) : ""));
+  } catch {}
+  return undefined;
+}
+
+function parseMeanings(answer: string, phrases: string[]): string[] | undefined {
+  const trimmed = answer.trim();
+  if (trimmed.startsWith("{")) {
+    try {
+      const obj = JSON.parse(trimmed) as { items?: { phrase?: unknown; meaning?: unknown }[] };
+      if (Array.isArray(obj?.items) && obj.items.length > 0) {
+        return phrases.map((phrase, index) => {
+          const byPhrase = obj.items!.find((item) => typeof item?.phrase === "string" && flatMatch(item.phrase) === flatMatch(phrase));
+          const fallback = obj.items!.length === phrases.length ? obj.items![index] : undefined;
+          const picked = byPhrase ?? fallback;
+          return typeof picked?.meaning === "string" ? picked.meaning.trim().slice(0, 300) : "";
+        });
+      }
+    } catch {}
+  }
+  return undefined;
+}
+
+function parseRests(answer: string, count: number): string[] | undefined {
+  const trimmed = answer.trim();
+  if (trimmed.startsWith("{")) {
+    try {
+      const obj = JSON.parse(trimmed) as { items?: { index?: unknown; meaning?: unknown }[] };
+      if (Array.isArray(obj?.items) && obj.items.length > 0) {
+        const byIndex = new Map<number, string>();
+        for (const item of obj.items) {
+          if (typeof item?.index === "number" && Number.isInteger(item.index) && typeof item?.meaning === "string")
+            byIndex.set(item.index, item.meaning.trim());
+        }
+        return Array.from({ length: count }, (_, index) => byIndex.get(index) ?? "");
+      }
+    } catch {}
+  }
+  return undefined;
+}
+
+const modelOptions = (action: string, model: string, step?: string, extra?: Omit<GenerateOptions, "fallbacks" | "allowFallback">): GenerateOptions => ({
+  effort: managedModel(action, step).effort,
+  fallbacks: managedFallbacks[model] ?? [],
+  allowFallback: true,
+  ...extra,
+});
+
 export async function executeLlm(
   input: Exclude<LlmRequest, { action: "connections" | "usage" }>,
   keys: ProviderKeys,
@@ -338,6 +437,7 @@ export async function executeLlm(
       keys,
       transport,
       observeUsage,
+      { effort: "none", allowFallback: false },
     );
     return { ok: true as const };
   }
@@ -346,7 +446,15 @@ export async function executeLlm(
     let videoSummary: string | undefined;
     if (input.video?.transcript && !input.video.summary) {
       try {
-        videoSummary = (await generate({ ...input.settings, ...managedPartner }, [{ role: "user", text: input.video.transcript }], stepPrompt.videoSummary(languageName(input.settings.target)), keys, transport)).trim().slice(0, 1200);
+        videoSummary = (await generate(
+          { ...input.settings, ...managedPartner },
+          [{ role: "user", text: input.video.transcript }],
+          stepPrompt.videoSummary(languageName(input.settings.target)),
+          keys,
+          transport,
+          observeUsage,
+          { effort: "none", usageStep: "videoSummary", fallbacks: managedFallbacks[managedPartner.model] ?? [], allowFallback: true },
+        )).trim().slice(0, 1200);
       } catch {}
     }
     const about = input.video?.summary ?? videoSummary;
@@ -357,14 +465,12 @@ export async function executeLlm(
       keys,
       transport,
       observeUsage,
+      modelOptions("questions", input.settings.model, undefined, { format: questionsSchemaFormat }),
     );
-    let questions: unknown;
-    try {
-      questions = JSON.parse(answer.slice(answer.indexOf("["), answer.lastIndexOf("]") + 1));
-    } catch {}
-    if (!Array.isArray(questions) || questions.length !== input.items.length)
+    const questions = parseQuestions(answer, input.items);
+    if (!questions)
       throw new Error("The questions could not be prepared. Please try again.");
-    return { questions: questions.map((question) => (typeof question === "string" ? question.trim().slice(0, 600) : "")), ...(videoSummary ? { videoSummary } : {}) };
+    return { questions, ...(videoSummary ? { videoSummary } : {}) };
   }
   if (input.action === "hints") {
     const answer = await generate(
@@ -374,6 +480,7 @@ export async function executeLlm(
       keys,
       transport,
       observeUsage,
+      modelOptions("hints", input.settings.model, undefined, { format: hintsSchemaFormat }),
     );
     return { hints: chosenHints(answer, input.words) };
   }
@@ -383,13 +490,21 @@ export async function executeLlm(
     let videoSummary: string | undefined;
     if (input.video?.transcript && !input.video.summary && !input.messages.some((message) => message.role === "assistant")) {
       try {
-        videoSummary = (await generate(input.settings, [{ role: "user", text: input.video.transcript }], stepPrompt.videoSummary(languageName(input.settings.target)), keys, transport)).trim().slice(0, 1200);
+        videoSummary = (await generate(
+          { ...input.settings, ...managedPartner },
+          [{ role: "user", text: input.video.transcript }],
+          stepPrompt.videoSummary(languageName(input.settings.target)),
+          keys,
+          transport,
+          observeUsage,
+          { effort: "none", usageStep: "videoSummary", fallbacks: managedFallbacks[managedPartner.model] ?? [], allowFallback: true },
+        )).trim().slice(0, 1200);
       } catch {}
       if (videoSummary) input = { ...input, video: { ...input.video, summary: videoSummary } };
     }
     const instruction = chatInstruction(input);
-    // Tagged sections are separated here; the caller saves the fixes.
-    const reply = splitCorrections(
+    // Structured reply (or legacy tagged text) is split here; the caller saves the fixes.
+    const reply = parseChatReply(
       await generate(
         input.settings,
         input.messages,
@@ -397,6 +512,7 @@ export async function executeLlm(
         keys,
         transport,
         observeUsage,
+        modelOptions("generate", input.settings.model, undefined, { format: chatSchemaFormat }),
       ),
     );
     return {
@@ -427,6 +543,7 @@ export async function executeLlm(
       keys,
       transport,
       observeUsage,
+      modelOptions("summarize", input.settings.model),
     );
     if (!text.trim() || text.length > 6000)
       throw new Error("The summary could not be prepared. Please try again.");
@@ -434,10 +551,33 @@ export async function executeLlm(
   }
   if (input.action === "outline" || input.action === "script") {
     const step = input.action === "outline" ? outlineStep(input) : scriptStep(input);
-    const text = await generate(input.settings, [{ role: "user", text: step.data }], step.instruction, keys, transport, observeUsage);
-    if (!text.trim() || text.length > (input.action === "script" ? 40000 : input.step === "points" ? 20000 : 12000))
+    const format = input.action === "script"
+      ? input.step === "meanings" && meaningsPromptVersion === "v1"
+        ? meaningsSchemaFormat
+        : input.step === "rests" && restsPromptVersion === "v1"
+          ? restsSchemaFormat
+          : undefined
+      : undefined;
+    const raw = await generate(
+      input.settings,
+      [{ role: "user", text: step.data }],
+      step.instruction,
+      keys,
+      transport,
+      observeUsage,
+      modelOptions(input.action, input.settings.model, input.step, { format }),
+    );
+    if (input.action === "script" && input.step === "meanings") {
+      const meanings = parseMeanings(raw, input.phrases);
+      if (meanings) return { text: JSON.stringify(meanings) };
+    }
+    if (input.action === "script" && input.step === "rests") {
+      const rests = parseRests(raw, input.sentences.length);
+      if (rests) return { text: JSON.stringify(rests) };
+    }
+    if (!raw.trim() || raw.length > (input.action === "script" ? 40000 : input.step === "points" ? 20000 : 12000))
       throw new Error(`The ${input.action === "outline" ? "summary" : "script"} could not be prepared. Please try again.`);
-    return { text: text.trim() };
+    return { text: raw.trim() };
   }
   const speaker = input.settings.speaker ? (input.settings.speaker === "male" ? "a man" : "a woman") : undefined;
   if (input.action === "review") {
@@ -448,6 +588,7 @@ export async function executeLlm(
       keys,
       transport,
       observeUsage,
+      modelOptions("review", input.settings.model, undefined, { format: reviewSchemaFormat }),
     );
     return reviewVerdict(verdict, input.phrase);
   }
@@ -461,6 +602,7 @@ export async function executeLlm(
       keys,
       transport,
       observeUsage,
+      modelOptions("translate", input.settings.model, undefined, { format: naturalTranslateSchemaFormat }),
     );
     return naturalAndLiteral(answer);
   }
@@ -481,20 +623,46 @@ export async function executeLlm(
       keys,
       transport,
       observeUsage,
+      modelOptions("translate", input.settings.model),
     ),
   };
 }
-// "OK", or "BETTER: … | REASON: …". Anything else counts as no suggestion.
+// Structured JSON { ok, better, reason } or legacy "OK" / "BETTER: … | REASON: …".
 export function reviewVerdict(verdict: string, phrase: string) {
-  const match = verdict.trim().match(/^BETTER:\s*([\s\S]+?)\s*\|\s*REASON:\s*([\s\S]+)$/i);
-  const better = match?.[1].trim().replace(/^["«“]|["»”]$/g, "");
   const same = (text: string) => text.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
+  const clean = (text: string) => text.trim().replace(/^["«“]|["»”]$/g, "");
+  const trimmed = verdict.trim();
+  if (trimmed.startsWith("{")) {
+    try {
+      const data = JSON.parse(trimmed) as { ok?: unknown; better?: unknown; reason?: unknown };
+      if (data && typeof data === "object") {
+        if (data.ok === true) return {};
+        const better = typeof data.better === "string" ? clean(data.better) : "";
+        const reason = typeof data.reason === "string" ? data.reason.trim().slice(0, 600) : "";
+        if (!better || better.length > 600 || same(better) === same(phrase) || !reason) return {};
+        return { suggestion: { phrase: better, reason } };
+      }
+    } catch {}
+  }
+  const match = trimmed.match(/^BETTER:\s*([\s\S]+?)\s*\|\s*REASON:\s*([\s\S]+)$/i);
+  const better = match?.[1] ? clean(match[1]) : undefined;
   if (!match || !better || better.length > 600 || same(better) === same(phrase)) return {};
   return { suggestion: { phrase: better, reason: match[2].trim().slice(0, 600) } };
 }
-// The natural version, and the close one when the model gave it on a "LITERAL:" line.
+// Structured JSON { natural, literal } or legacy line-based "LITERAL:" output.
 export function naturalAndLiteral(answer: string) {
-  const lines = answer.trim().split("\n").map((line) => line.trim()).filter(Boolean);
+  const trimmed = answer.trim();
+  if (trimmed.startsWith("{")) {
+    try {
+      const data = JSON.parse(trimmed) as { natural?: unknown; literal?: unknown };
+      if (data && typeof data === "object" && typeof data.natural === "string") {
+        const text = data.natural.trim();
+        const literal = typeof data.literal === "string" ? data.literal.trim() : "";
+        return { text, ...(literal && literal.toLowerCase() !== text.toLowerCase() ? { literal } : {}) };
+      }
+    } catch {}
+  }
+  const lines = trimmed.split("\n").map((line) => line.trim()).filter(Boolean);
   const literal = lines.find((line) => /^LITERAL:/i.test(line))?.replace(/^LITERAL:\s*/i, "").trim();
   const text = lines.filter((line) => !/^LITERAL:/i.test(line)).join(" ");
   return { text, ...(literal && literal.toLowerCase() !== text.toLowerCase() ? { literal } : {}) };

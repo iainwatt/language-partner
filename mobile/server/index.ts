@@ -160,7 +160,7 @@ export const llm = onCall(
     });
     await updateConversationAccess(request.auth.uid, input.conversationSessionId ?? "legacy", "authorize", paywallEnabled.value());
     let eventId: string | undefined;
-    let observation: UsageObservation | undefined;
+    const observations: UsageObservation[] = [];
     let failed = false;
     try {
       eventId = await beginUsage(request.auth.uid, selection.provider, selection.model, input.action, input.trackPractice === true);
@@ -191,7 +191,7 @@ export const llm = onCall(
         if (input.action === "generate") input.video = { ...input.video, ...video, transcript: undefined, summary: undefined, ...about };
         else input.video = { ...video, ...about };
       }
-      const { fixes, natural, videoSummary, ...result } = { fixes: undefined, natural: undefined, videoSummary: undefined, ...(await executeLlm(input, keys, fetch, (value) => { observation = value; })) };
+      const { fixes, natural, videoSummary, ...result } = { fixes: undefined, natural: undefined, videoSummary: undefined, ...(await executeLlm(input, keys, fetch, (value) => { observations.push(value); })) };
       if (videoSummary && summaryPath) await getFirestore().doc(summaryPath).set({ summary: videoSummary, at: new Date().toISOString() }).catch(() => {});
 
       if (fixes && input.action === "generate") {
@@ -239,7 +239,19 @@ export const llm = onCall(
         catch { logError("Could not release conversation request"); }
       }
       try {
-        if (eventId) await finishUsage(request.auth.uid, eventId, observation, failed);
+        const mainObservation = observations.findLast((obs) => obs.step !== "videoSummary");
+        const extraObservations = observations.filter((obs) => obs.step === "videoSummary");
+        if (eventId) await finishUsage(request.auth.uid, eventId, mainObservation, failed);
+        for (const extra of extraObservations) {
+          const extraId = await beginUsage(
+            request.auth.uid,
+            extra.provider ?? managedPartner.provider,
+            extra.model ?? managedPartner.model,
+            extra.step ?? "videoSummary",
+            input.trackPractice === true,
+          );
+          await finishUsage(request.auth.uid, extraId, extra, false);
+        }
       } catch {
         // Keep the durable pending record. Never turn a successful paid reply
         // into an error that encourages the learner to pay for another retry.

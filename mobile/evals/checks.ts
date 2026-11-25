@@ -1,4 +1,4 @@
-import { splitCorrections, type SplitReply } from "../src/core/corrections";
+import { parseChatReply, type SplitReply } from "../src/core/corrections";
 
 export type EvalCase = {
   id: string;
@@ -52,7 +52,7 @@ const words = (text: string) => (plain(text) ? plain(text).split(" ").length : 0
 
 // Score one model reply against its case. Pure: the same reply always gets the same verdict.
 export function judge(testCase: EvalCase, raw: string): Verdict {
-  const reply = splitCorrections(raw);
+  const reply = parseChatReply(raw);
   const fixes = reply.corrections.filter((item) => !item.misheard);
   const flagged = reply.corrections.filter((item) => item.misheard);
   const visible = `${reply.text}\n${reply.shown}`;

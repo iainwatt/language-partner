@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { estimateCostNanos, tokenUsage } from "../server/pricing";
+import { executeLlm, llmRequestSchema } from "../server/llm";
 import { generate, type UsageObservation } from "../server/providers";
 import { initialSnapshot } from "../src/core/domain";
 import { emptyPartnerUsage, formatCost, hourlyCost, practiceDelta } from "../src/core/usage";
@@ -68,4 +69,62 @@ test("hourly cost excludes older untracked builds and handles missing data and z
   assert.equal(hourlyCost({ ...usage, practiceMs: 1800000 }), 4);
   assert.equal(hourlyCost({ ...usage, practiceMs: 1800000, trackedUnknownRequests: 1 }), null);
   assert.equal(formatCost(0.00001), "<$0.001");
+});
+
+test("videoSummary calls are metered via observeUsage in both questions and generate", async () => {
+  const settings = { ...initialSnapshot(false).settings, mode: "api" as const };
+  const observedQuestions: UsageObservation[] = [];
+  let qCall = 0;
+  await executeLlm(
+    llmRequestSchema.parse({
+      action: "questions",
+      settings: { ...settings, model: "gpt-5.4" },
+      items: [{ phrase: "привет", meaning: "hello", sentence: "Привет всем!" }],
+      video: { youtubeId: "pyqW-FJwKDE", title: "Test", transcript: "Привет всем!" },
+    }) as any,
+    { openai: "test-key" },
+    (async () => {
+      qCall++;
+      const text = qCall === 1 ? "A short video." : JSON.stringify({ items: [{ phrase: "привет", question: "Как дела?" }] });
+      return Response.json({
+        output: [{ content: [{ type: "output_text", text }] }],
+        usage: { input_tokens: 100 * qCall, output_tokens: 20 * qCall },
+      });
+    }) as typeof fetch,
+    (obs) => observedQuestions.push(obs),
+  );
+  assert.equal(observedQuestions.length, 2);
+  assert.equal(observedQuestions[0].step, "videoSummary");
+  assert.equal(observedQuestions[0].model, "gpt-5.4-mini");
+  assert.equal(observedQuestions[0].tokens?.input, 100);
+  assert.equal(observedQuestions[1].model, "gpt-5.4");
+  assert.equal(observedQuestions[1].tokens?.input, 200);
+
+  const observedGenerate: UsageObservation[] = [];
+  let gCall = 0;
+  await executeLlm(
+    llmRequestSchema.parse({
+      action: "generate",
+      settings,
+      messages: [{ id: "m1", role: "user", text: "Start.", final: true, createdAt: "2026-11-25T00:00:00Z" }],
+      video: { youtubeId: "pyqW-FJwKDE", title: "Test", transcript: "Привет всем!" },
+    }) as any,
+    { openai: "test-key" },
+    (async () => {
+      gCall++;
+      const text = gCall === 1
+        ? "A short video."
+        : JSON.stringify({ reply: "Привет!", natural: null, corrections: [], misheard: [], meant: null, speaker: null });
+      return Response.json({
+        output: [{ content: [{ type: "output_text", text }] }],
+        usage: { input_tokens: 50 * gCall, output_tokens: 10 * gCall },
+      });
+    }) as typeof fetch,
+    (obs) => observedGenerate.push(obs),
+  );
+  assert.equal(observedGenerate.length, 2);
+  assert.equal(observedGenerate[0].step, "videoSummary");
+  assert.equal(observedGenerate[0].tokens?.input, 50);
+  assert.equal(observedGenerate[1].step, undefined);
+  assert.equal(observedGenerate[1].tokens?.input, 100);
 });

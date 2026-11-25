@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { splitCorrections } from "../src/core/corrections";
-import { chatPrompt, chatPrompts, chatPromptVersion } from "../server/prompts";
+import { parseChatReply, splitCorrections } from "../src/core/corrections";
+import { chatPrompt, chatPrompts, chatPromptVersion, reviewPrompts, translatePrompts } from "../server/prompts";
 import { executeLlm, llmRequestSchema, naturalAndLiteral, reviewVerdict } from "../server/llm";
 import { reviewPrompt, scriptPrompt, translatePrompt } from "../server/prompts";
 import { commitWrites } from "../src/core/cloudDictionary";
@@ -40,10 +40,10 @@ test("a reply without tags, or with an unclosed one, is never lost", () => {
 });
 
 test("the prompt in use tags corrections and hidden slips; earlier versions stay as shipped", () => {
-  // The app uses the version that worked. v6 added rules against echoing and
-  // for supplying a word; they patched trouble made by other instructions.
-  assert.equal(chatPromptVersion, "v5");
-  const prompt = chatPrompt("English", "Русский");
+  // v7 uses Structured Outputs; v5/v6 XML-tagged prompts remain frozen as shipped.
+  assert.equal(chatPromptVersion, "v7");
+  assert.match(chatPrompt("English", "Русский"), /Return JSON matching the schema/);
+  const prompt = chatPrompts.v5("English", "Русский");
   assert.match(prompt, /Converse in Русский/);
   assert.match(prompt, /<corrections>\nthe learner's words → the corrected words \(short reason\)\n<\/corrections>/);
   assert.match(prompt, /<misheard>/);
@@ -51,6 +51,38 @@ test("the prompt in use tags corrections and hidden slips; earlier versions stay
   assert.doesNotMatch(chatPrompts.v2("English", "Русский"), /<meant>/);
   assert.doesNotMatch(chatPrompts.v0("English", "Русский"), /<corrections>|DICTATION/);
   assert.match(chatPrompts.v1("English", "Русский"), /<log>/);
+});
+
+test("structured JSON chat replies parse into the same SplitReply shape and work with eval judge", () => {
+  const json = JSON.stringify({
+    reply: "Понимаю! А какие сказки она любит?",
+    natural: "Она постоянно забирается на дерево, и я рассказываю ей сказки.",
+    corrections: [{ said: "рассказываю её", better: "рассказываю ей", reason: "дательный падеж" }],
+    misheard: [{ recognised: "sky", meant: "Скай" }],
+    meant: "She keeps climbing trees and I tell her fairy tales.",
+    speaker: "male",
+  });
+  assert.deepEqual(parseChatReply(json), {
+    text: "Понимаю! А какие сказки она любит?",
+    shown: "Она постоянно забирается на дерево, и я рассказываю ей сказки.\nрассказываю её → рассказываю ей (дательный падеж)",
+    natural: "Она постоянно забирается на дерево, и я рассказываю ей сказки.",
+    meant: "She keeps climbing trees and I tell her fairy tales.",
+    speaker: "male",
+    corrections: [
+      { said: "рассказываю её", better: "рассказываю ей", note: "дательный падеж", misheard: false },
+      { said: "sky", better: "Скай", misheard: true },
+    ],
+    position: "last",
+  });
+  assert.equal(judge(find("error-dative"), json).checks["error corrected"], true);
+  assert.equal(judge(find("slip-name"), JSON.stringify({
+    reply: "Три года — чудесный возраст! Какая сказка у Скай любимая?",
+    natural: null,
+    corrections: [],
+    misheard: [{ recognised: "sky", meant: "Скай" }],
+    meant: "Skye is three and loves fairy tales.",
+    speaker: null,
+  })).checks["slip left alone"], true);
 });
 
 test("the server returns the corrections block and one account document per fix, with the sentence", async () => {
@@ -150,15 +182,16 @@ test("the hidden note of what was meant is split off, returned to the app and ne
 });
 
 test("the partner asks once whether the learner is a man or a woman, and the app remembers the answer", async () => {
-  const unknown = chatPrompt("English", "Русский", { name: "Iain", ask: true });
+  const unknown = chatPrompts.v5("English", "Русский", { name: "Iain", ask: true });
   assert.match(unknown, /You do not yet know whether the learner is a man or a woman/);
   assert.match(unknown, /Ask once now/);
   assert.match(unknown, /Their name is Iain\. If that name makes the answer clear, do not ask openly/);
   assert.match(unknown, /<speaker>male<\/speaker> or <speaker>female<\/speaker>/);
-  assert.doesNotMatch(chatPrompt("English", "Русский", { ask: true }), /Their name is/);
-  const known = chatPrompt("English", "Русский", { speaker: "female" });
+  assert.doesNotMatch(chatPrompts.v5("English", "Русский", { ask: true }), /Their name is/);
+  const known = chatPrompts.v5("English", "Русский", { speaker: "female" });
   assert.match(known, /THE LEARNER is a woman/);
   assert.doesNotMatch(known, /Ask once now|<speaker>/);
+  assert.match(chatPrompt("English", "Русский", { name: "Iain", ask: true }), /set "speaker" to "male" or "female"/);
 
   const reply = splitCorrections("Отлично! Тогда буду обращаться к тебе в мужском роде.\n<meant>Yes, I'm a man.</meant>\n<speaker>male</speaker>");
   assert.equal(reply.speaker, "male");
@@ -188,10 +221,15 @@ test("asking how to say something gets the natural version first, and the close 
   assert.deepEqual(naturalAndLiteral("побыть рядом с мамой или папой\nLITERAL: момент близости с родителем"), {
     text: "побыть рядом с мамой или папой", literal: "момент близости с родителем",
   });
+  assert.deepEqual(naturalAndLiteral(JSON.stringify({ natural: "побыть рядом с мамой или папой", literal: "момент близости с родителем" })), {
+    text: "побыть рядом с мамой или папой", literal: "момент близости с родителем",
+  });
+  assert.deepEqual(naturalAndLiteral(JSON.stringify({ natural: "Спасибо", literal: null })), { text: "Спасибо" });
   assert.deepEqual(naturalAndLiteral(" Спасибо "), { text: "Спасибо" });
   assert.deepEqual(naturalAndLiteral("Спасибо\nLITERAL: спасибо"), { text: "Спасибо" });
   assert.match(translatePrompt("English", "Русский", "a man"), /Do not translate the English wording; translate the meaning/);
   assert.match(translatePrompt("English", "Русский", "a man"), /The speaker is a man/);
+  assert.match(translatePrompts.v0("English", "Русский", "a man"), /LITERAL:/);
   const settings = { ...initialSnapshot(false).settings, mode: "api" as const };
   let body: any;
   const answer = (request: unknown, text: string) =>
@@ -200,9 +238,11 @@ test("asking how to say something gets the natural version first, and the close 
       return Response.json({ output: [{ content: [{ type: "output_text", text }] }] });
     });
   const asked = { action: "translate", settings, text: "a moment of closeness with a parent", source: "en-US", target: "ru-RU", context: [] };
-  assert.deepEqual(await answer({ ...asked, natural: true }, "побыть рядом с родителями\nLITERAL: момент близости с родителем"), {
+  assert.deepEqual(await answer({ ...asked, natural: true }, JSON.stringify({ natural: "побыть рядом с родителями", literal: "момент близости с родителем" })), {
     text: "побыть рядом с родителями", literal: "момент близости с родителем",
   });
+  assert.equal(body.text.format.name, "natural_translation");
+  assert.equal(body.reasoning.effort, "none");
   assert.match(body.instructions, /what a native speaker of Русский would actually say/);
   // Every other translation in the app is unchanged.
   assert.deepEqual(await answer(asked, "момент близости с родителем"), { text: "момент близости с родителем" });
@@ -211,13 +251,18 @@ test("asking how to say something gets the natural version first, and the close 
 
 test("a saved phrase is reviewed, and a better one waits on its card until accepted or dismissed", async () => {
   assert.deepEqual(reviewVerdict("OK", "спасибо"), {});
+  assert.deepEqual(reviewVerdict(JSON.stringify({ ok: true, better: null, reason: null }), "спасибо"), {});
+  assert.deepEqual(reviewVerdict(JSON.stringify({ ok: false, better: "побыть рядом с родителями", reason: "Stiff." }), "момент близости с родителем"), {
+    suggestion: { phrase: "побыть рядом с родителями", reason: "Stiff." },
+  });
   assert.deepEqual(reviewVerdict("BETTER: побыть рядом с родителями | REASON: The original sounds like a textbook.", "момент близости с родителем"), {
     suggestion: { phrase: "побыть рядом с родителями", reason: "The original sounds like a textbook." },
   });
   // The same phrase back, or a reply in no known form, is not a suggestion.
   assert.deepEqual(reviewVerdict("BETTER: Спасибо! | REASON: none", "спасибо"), {});
   assert.deepEqual(reviewVerdict("It looks fine to me.", "спасибо"), {});
-  assert.match(reviewPrompt("English", "Русский"), /If it is fine, reply with exactly: OK/);
+  assert.match(reviewPrompts.v0("English", "Русский"), /If it is fine, reply with exactly: OK/);
+  assert.match(reviewPrompt("English", "Русский"), /set "ok" to true/);
   const settings = { ...initialSnapshot(false).settings, mode: "api" as const };
   let body: any;
   const result = await executeLlm(
@@ -276,7 +321,7 @@ test("the question about the learner's forms is asked once, then never again", a
   const told = instruction({ askSpeaker: false });
   assert.doesNotMatch(told, /Ask once now/);
   assert.match(told, /They have been asked before, so do not ask/);
-  assert.match(told, /<speaker>male<\/speaker>/);
+  assert.match(told, /"speaker" to "male" or "female"/);
   const known = chatInstruction({ action: "generate", settings: { ...settings, speaker: "male" }, messages: [], askSpeaker: true } as any);
   assert.match(known, /THE LEARNER is a man/);
   assert.doesNotMatch(known, /Ask once now/);
@@ -299,6 +344,7 @@ test("hints from the learner's words are taken out of the reply and kept apart",
   const { chosenHints } = await import("../src/core/corrections");
   const theirs = [{ phrase: "вместе", meaning: "together" }, { phrase: "Гулять", meaning: "to go for a walk" }];
   assert.equal(chosenHints('["гулять", "вместе", "площадка"]', theirs), "Гулять — to go for a walk\nвместе — together");
+  assert.equal(chosenHints('{"hints":["гулять","вместе"]}', theirs), "Гулять — to go for a walk\nвместе — together");
   assert.equal(chosenHints("Here you go: [\"вместе\"]", theirs), "вместе — together");
   assert.equal(chosenHints("[]", theirs), "");
   assert.equal(chosenHints("none of them", theirs), "");

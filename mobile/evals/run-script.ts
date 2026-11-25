@@ -6,10 +6,17 @@
 // Needs an OpenAI key: LLM_API_KEYS in the environment, or in functions/.secret.local.
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { managedWriter } from "../src/core/managedAi";
+import { managedModel, managedWriter } from "../src/core/managedAi";
 import { llmRequestSchema, outlineStep, scriptStep } from "../server/llm";
 import { generate } from "../server/providers";
-import { scriptPrompts, scriptPromptVersion, summaryPrompts, summaryPromptVersion } from "../server/prompts";
+import {
+  annotatePrompts,
+  annotatePromptVersion,
+  scriptPrompts,
+  scriptPromptVersion,
+  summaryPrompts,
+  summaryPromptVersion,
+} from "../server/prompts";
 import { annotateScript, scriptText } from "../src/core/script";
 import { judgeOutline, judgeRevision, judgeScript, wordCount, type Checks, type ScriptCase } from "./script.checks";
 import { russianScriptCases } from "./script.cases.ru";
@@ -20,8 +27,9 @@ const repeats = Math.max(1, Number(option(args, "repeats") ?? 3));
 const only = option(args, "case");
 const outlineVersion = (option(args, "summary") ?? summaryPromptVersion) as keyof typeof summaryPrompts;
 const scriptVersion = (option(args, "script") ?? scriptPromptVersion) as keyof typeof scriptPrompts;
-if (!(outlineVersion in summaryPrompts) || !(scriptVersion in scriptPrompts)) {
-  console.error(`Summary versions: ${Object.keys(summaryPrompts).join(", ")}. Script versions: ${Object.keys(scriptPrompts).join(", ")}.`);
+const annotateVersion = (option(args, "annotate") ?? annotatePromptVersion) as keyof typeof annotatePrompts;
+if (!(outlineVersion in summaryPrompts) || !(scriptVersion in scriptPrompts) || !(annotateVersion in annotatePrompts)) {
+  console.error(`Summary versions: ${Object.keys(summaryPrompts).join(", ")}. Script versions: ${Object.keys(scriptPrompts).join(", ")}. Annotate versions: ${Object.keys(annotatePrompts).join(", ")}.`);
   process.exit(1);
 }
 const cases = russianScriptCases.filter((item) => !only || item.id.includes(only));
@@ -29,33 +37,39 @@ type Run = { caseId: string; points?: string; firstDraft?: string; outline?: str
 
 async function once(testCase: ScriptCase, keys: ReturnType<typeof apiKeys>): Promise<Run> {
   const run: Run = { caseId: testCase.id, checks: {} };
-  const settings = { ...managedWriter, mode: "api", native: "en-US", target: "ru-RU", autoSpeak: false, speaker: "male" };
-  const messages = testCase.turns.map((turn, index) => ({ ...turn, id: `m${index}`, final: true, createdAt: "2026-01-01T00:00:00.000Z" }));
-  const ask = async (request: unknown) => {
-    const input = llmRequestSchema.parse(request);
+  const baseSettings = { ...managedWriter, mode: "api" as const, native: "en-US", target: "ru-RU", autoSpeak: false, speaker: "male" as const };
+  const ask = async (request: { action: "outline" | "script"; step?: string; [key: string]: unknown }) => {
+    const useNewRouting =
+      (request.action === "outline" && outlineVersion === "v4") ||
+      (request.action === "script" && request.step === "write" && scriptVersion === "v8") ||
+      (request.action === "script" && request.step === "cases" && annotateVersion === "v1");
+    const target = useNewRouting ? managedModel(request.action, request.step) : managedWriter;
+    const input = llmRequestSchema.parse({ ...request, settings: { ...baseSettings, ...target } });
     const step = input.action === "outline" ? outlineStep(input, summaryPrompts[outlineVersion])
-      : input.action === "script" ? scriptStep(input, scriptPrompts[scriptVersion]) : undefined;
+      : input.action === "script" ? scriptStep(input, scriptPrompts[scriptVersion], annotatePrompts[annotateVersion]) : undefined;
     if (!step || !("settings" in input)) throw new Error("Unexpected request");
-    return (await generate(input.settings, [{ role: "user", text: step.data }], step.instruction, keys)).trim();
+    const effort = useNewRouting && "effort" in target ? target.effort : undefined;
+    return (await generate(input.settings, [{ role: "user", text: step.data }], step.instruction, keys, fetch, undefined, effort ? { effort } : undefined)).trim();
   };
+  const messages = testCase.turns.map((turn, index) => ({ ...turn, id: `m${index}`, final: true, createdAt: "2026-01-01T00:00:00.000Z" }));
   try {
     // The same three calls the app makes: list the points, write the piece, check it.
-    run.points = await ask({ action: "outline", step: "points", settings, messages });
-    run.firstDraft = await ask({ action: "outline", step: "write", settings, points: run.points, saved: testCase.saved });
-    run.outline = await ask({ action: "outline", step: "check", settings, points: run.points, saved: testCase.saved, draft: run.firstDraft });
+    run.points = await ask({ action: "outline", step: "points", messages });
+    run.firstDraft = await ask({ action: "outline", step: "write", points: run.points, saved: testCase.saved });
+    run.outline = await ask({ action: "outline", step: "check", points: run.points, saved: testCase.saved, draft: run.firstDraft });
     Object.assign(run.checks, judgeOutline(testCase, run.outline));
     if (testCase.feedback) {
-      run.revised = await ask({ action: "outline", step: "revise", settings, draft: run.outline, feedback: testCase.feedback.text, points: run.points, saved: testCase.saved });
+      run.revised = await ask({ action: "outline", step: "revise", draft: run.outline, feedback: testCase.feedback.text, points: run.points, saved: testCase.saved });
       Object.assign(run.checks, judgeRevision(testCase, run.revised));
     }
     // As in the app: write the script, then mark the cases in a separate call,
     // kept only where it left the text unchanged.
     run.written = await ask({
-      action: "script", step: "write", settings, messages, outline: run.revised ?? run.outline,
+      action: "script", step: "write", messages, outline: run.revised ?? run.outline,
       saved: testCase.saved, dictionary: testCase.dictionary,
     });
     const text = scriptText(run.written);
-    const cases = await ask({ action: "script", step: "cases", settings, text }).catch(() => undefined);
+    const cases = await ask({ action: "script", step: "cases", text }).catch(() => undefined);
     const annotated = annotateScript(run.written, { cases });
     run.script = annotated.script;
     run.applied = annotated.applied;

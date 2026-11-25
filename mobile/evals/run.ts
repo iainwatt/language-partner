@@ -9,6 +9,7 @@ import { managedPartner } from "../src/core/managedAi";
 import { chatInstruction, llmRequestSchema, parseKeys } from "../server/llm";
 import { generate } from "../server/providers";
 import { chatPrompts, type ChatPromptVersion } from "../server/prompts";
+import { chatSchemaFormat } from "../server/schemas";
 import { judge, type CheckName, type EvalCase, type Verdict } from "./checks";
 import { russianCases } from "./cases.ru";
 import { report, type Run } from "./report";
@@ -51,7 +52,8 @@ async function once(testCase: EvalCase, version: ChatPromptVersion, apiKeys: Ret
     })),
   });
   if (request.action !== "generate") throw new Error("Expected a chat request");
-  return generate(request.settings, request.messages, chatInstruction(request, chatPrompts[version]), apiKeys);
+  const options = version === "v7" ? { effort: "low" as const, format: chatSchemaFormat } : undefined;
+  return generate(request.settings, request.messages, chatInstruction(request, chatPrompts[version]), apiKeys, fetch, undefined, options);
 }
 
 async function main() {

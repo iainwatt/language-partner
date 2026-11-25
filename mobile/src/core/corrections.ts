@@ -126,6 +126,53 @@ export function knownHints(hints: string, saved: { phrase: string }[]): string {
     .join("\n");
 }
 
+// Parse either Structured Output JSON (chat.v7+) or legacy tagged text (chat.v0-v6).
+export function parseChatReply(raw: string): SplitReply {
+  const trimmed = raw.trim();
+  if (trimmed.startsWith("{")) {
+    try {
+      const data = JSON.parse(trimmed);
+      if (data && typeof data === "object" && typeof data.reply === "string") {
+        const corrections: Correction[] = [];
+        const shownLines: string[] = [];
+        const natural = typeof data.natural === "string" && data.natural.trim() ? limit(data.natural) : undefined;
+        if (natural) shownLines.push(natural);
+        for (const item of Array.isArray(data.corrections) ? data.corrections : []) {
+          if (corrections.length >= 20) break;
+          const said = typeof item?.said === "string" ? limit(item.said) : "";
+          const better = typeof item?.better === "string" ? limit(item.better.replace(/\?$/, "")) : "";
+          const note = typeof item?.reason === "string" && item.reason.trim() ? limit(item.reason) : undefined;
+          if (!said || !better) continue;
+          corrections.push({ said, better, ...(note ? { note } : {}), misheard: false });
+          shownLines.push(`${said} → ${better}${note ? ` (${note})` : ""}`);
+        }
+        for (const item of Array.isArray(data.misheard) ? data.misheard : []) {
+          if (corrections.length >= 20) break;
+          const said = typeof item?.recognised === "string" ? limit(item.recognised) : "";
+          const better = typeof item?.meant === "string" ? limit(item.meant.replace(/\?$/, "")) : "";
+          if (!said || !better) continue;
+          corrections.push({ said, better, misheard: true });
+        }
+        const shown = shownLines.join("\n").slice(0, 4000);
+        const meant = typeof data.meant === "string" && data.meant.trim()
+          ? data.meant.replace(/\s+/g, " ").trim().slice(0, 2000)
+          : undefined;
+        const speaker = data.speaker === "male" || data.speaker === "female" ? data.speaker : undefined;
+        return {
+          text: data.reply.trim(),
+          shown,
+          ...(natural ? { natural } : {}),
+          ...(meant ? { meant } : {}),
+          ...(speaker ? { speaker } : {}),
+          corrections,
+          position: shown ? "last" : "none",
+        };
+      }
+    } catch {}
+  }
+  return splitCorrections(raw);
+}
+
 // The hints for a question, from the model's choice among the learner's saved
 // words: a list of phrases copied from theirs. Each is matched back to the
 // saved word, so what is shown is always one of the learner's own, with the
@@ -133,7 +180,13 @@ export function knownHints(hints: string, saved: { phrase: string }[]): string {
 export function chosenHints(answer: string, saved: { phrase: string; meaning: string }[]): string {
   let picked: unknown;
   try {
-    picked = JSON.parse(answer.slice(answer.indexOf("["), answer.lastIndexOf("]") + 1));
+    const trimmed = answer.trim();
+    if (trimmed.startsWith("{")) {
+      const obj = JSON.parse(trimmed);
+      if (obj && typeof obj === "object" && Array.isArray((obj as { hints?: unknown }).hints))
+        picked = (obj as { hints: unknown[] }).hints;
+    }
+    if (!picked) picked = JSON.parse(answer.slice(answer.indexOf("["), answer.lastIndexOf("]") + 1));
   } catch {
     return "";
   }

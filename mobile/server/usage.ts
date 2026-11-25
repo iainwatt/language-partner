@@ -34,23 +34,57 @@ export async function finishUsage(uid: string, eventId: string, observation: Usa
   await db.runTransaction(async (tx) => {
     const saved = (await tx.get(event)).data();
     if (!saved || saved.status !== "pending") return;
-    const summary = db.doc(`${root(uid)}/partners/${saved.provider}`);
-    const data = { ...emptyPartnerUsage(), ...(await tx.get(summary)).data() } as PartnerUsage;
+    const actualProvider = observation?.provider ?? (saved.provider as Provider);
+    const actualModel = observation?.model ?? (saved.model as string);
+    const switchedProvider = actualProvider !== saved.provider;
+    const savedSummaryRef = db.doc(`${root(uid)}/partners/${saved.provider}`);
+    const savedData = { ...emptyPartnerUsage(), ...(await tx.get(savedSummaryRef)).data() } as PartnerUsage;
+    const targetSummaryRef = switchedProvider ? db.doc(`${root(uid)}/partners/${actualProvider}`) : savedSummaryRef;
+    const targetData = switchedProvider
+      ? { ...emptyPartnerUsage(), ...(await tx.get(targetSummaryRef)).data() } as PartnerUsage
+      : savedData;
     const tokens = observation?.tokens ?? null;
-    const cost = estimateCostNanos(saved.provider, saved.model, tokens, saved.at);
+    const cost = estimateCostNanos(actualProvider, actualModel, tokens, saved.at);
     const known = cost !== null;
-    tx.set(summary, {
-      ...data,
-      pricedRequests: data.pricedRequests + Number(known),
-      unknownRequests: data.unknownRequests - Number(known),
-      inputTokens: data.inputTokens + (tokens?.input ?? 0),
-      outputTokens: data.outputTokens + (tokens?.output ?? 0),
-      cachedInputTokens: data.cachedInputTokens + (tokens?.cachedInput ?? 0),
-      estimatedCostNanos: data.estimatedCostNanos + (cost ?? 0),
-      trackedCostNanos: data.trackedCostNanos + (saved.tracked ? cost ?? 0 : 0),
-      trackedUnknownRequests: data.trackedUnknownRequests - Number(known && saved.tracked),
-    });
+    if (switchedProvider) {
+      // Move the pending request count from the primary provider to the fallback provider that answered.
+      tx.set(savedSummaryRef, {
+        ...savedData,
+        requests: Math.max(0, savedData.requests - 1),
+        unknownRequests: Math.max(0, savedData.unknownRequests - 1),
+        trackedRequests: Math.max(0, savedData.trackedRequests - Number(saved.tracked)),
+        trackedUnknownRequests: Math.max(0, savedData.trackedUnknownRequests - Number(saved.tracked)),
+      });
+      tx.set(targetSummaryRef, {
+        ...targetData,
+        startedAt: targetData.startedAt ?? saved.at,
+        requests: targetData.requests + 1,
+        pricedRequests: targetData.pricedRequests + Number(known),
+        unknownRequests: targetData.unknownRequests + Number(!known),
+        trackedRequests: targetData.trackedRequests + Number(saved.tracked),
+        trackedUnknownRequests: targetData.trackedUnknownRequests + Number(!known && saved.tracked),
+        inputTokens: targetData.inputTokens + (tokens?.input ?? 0),
+        outputTokens: targetData.outputTokens + (tokens?.output ?? 0),
+        cachedInputTokens: targetData.cachedInputTokens + (tokens?.cachedInput ?? 0),
+        estimatedCostNanos: targetData.estimatedCostNanos + (cost ?? 0),
+        trackedCostNanos: targetData.trackedCostNanos + (saved.tracked ? cost ?? 0 : 0),
+      });
+    } else {
+      tx.set(savedSummaryRef, {
+        ...savedData,
+        pricedRequests: savedData.pricedRequests + Number(known),
+        unknownRequests: savedData.unknownRequests - Number(known),
+        inputTokens: savedData.inputTokens + (tokens?.input ?? 0),
+        outputTokens: savedData.outputTokens + (tokens?.output ?? 0),
+        cachedInputTokens: savedData.cachedInputTokens + (tokens?.cachedInput ?? 0),
+        estimatedCostNanos: savedData.estimatedCostNanos + (cost ?? 0),
+        trackedCostNanos: savedData.trackedCostNanos + (saved.tracked ? cost ?? 0 : 0),
+        trackedUnknownRequests: savedData.trackedUnknownRequests - Number(known && saved.tracked),
+      });
+    }
     tx.update(event, {
+      provider: actualProvider,
+      model: actualModel,
       status: failed ? "failed" : "completed", tokens,
       estimatedCostNanos: cost,
       responseId: observation?.responseId ?? null,

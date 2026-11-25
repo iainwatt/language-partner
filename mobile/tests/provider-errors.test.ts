@@ -2,8 +2,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { ProviderRequestError, providerRequestError } from "../server/providerErrors";
 import { executeLlm, parseKeys } from "../server/llm";
-import { providers } from "../src/core/domain";
-import { configured } from "../server/providers";
+import { providers, initialSnapshot } from "../src/core/domain";
+import { configured, generate } from "../server/providers";
 
 test("provider authentication failures stay distinct from app login and never reveal raw errors", async () => {
   for (const provider of ["openai", "claude", "gemini"] as const) {
@@ -68,4 +68,43 @@ test("pasted key whitespace is removed and a whitespace-only credential is unava
   const keys = parseKeys(JSON.stringify({ openai: " \n test-key\t ", claude: " \n ", gemini: "second-key" }));
   assert.deepEqual(keys, { openai: "test-key", claude: "", gemini: "second-key" });
   assert.deepEqual(configured(keys), { openai: true, claude: false, gemini: true });
+});
+
+test("transient provider failures can fall back to a configured secondary model, while auth errors never do", async () => {
+  const settings = { ...initialSnapshot(false).settings, mode: "api" as const };
+  const fallbacks = [{ provider: "claude" as const, model: "claude-sonnet-5", effort: "low" as const }];
+  const seenUrls: string[] = [];
+  const observed: any[] = [];
+  const reply = await generate(
+    settings,
+    [{ role: "user", text: "Привет" }],
+    "Test",
+    { openai: "oa-key", claude: "cl-key" },
+    (async (url: string) => {
+      seenUrls.push(url);
+      if (url.includes("openai.com")) return Response.json({ error: { code: "rate_limit_error" } }, { status: 429 });
+      return Response.json({ id: "msg_1", model: "claude-sonnet-5", content: [{ type: "text", text: "Привет!" }], usage: { input_tokens: 10, output_tokens: 5 } });
+    }) as typeof fetch,
+    (obs) => observed.push(obs),
+    { fallbacks, allowFallback: true },
+  );
+  assert.equal(reply, "Привет!");
+  assert.deepEqual(seenUrls, ["https://api.openai.com/v1/responses", "https://api.anthropic.com/v1/messages"]);
+  assert.equal(observed[0].provider, "claude");
+  assert.equal(observed[0].model, "claude-sonnet-5");
+
+  let authCalls = 0;
+  await assert.rejects(generate(
+    settings,
+    [{ role: "user", text: "Привет" }],
+    "Test",
+    { openai: "oa-key", claude: "cl-key" },
+    (async () => {
+      authCalls++;
+      return Response.json({ error: { code: "invalid_api_key" } }, { status: 401 });
+    }) as typeof fetch,
+    undefined,
+    { fallbacks, allowFallback: true },
+  ));
+  assert.equal(authCalls, 1);
 });
