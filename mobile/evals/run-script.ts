@@ -17,7 +17,8 @@ import {
   summaryPrompts,
   summaryPromptVersion,
 } from "../server/prompts";
-import { annotateScript, scriptText } from "../src/core/script";
+import { casesSchemaFormat } from "../server/schemas";
+import { annotateScript, applyWordCases, scriptText } from "../src/core/script";
 import { judgeOutline, judgeRevision, judgeScript, wordCount, type Checks, type ScriptCase } from "./script.checks";
 import { russianScriptCases } from "./script.cases.ru";
 import { apiKeys, option, pool, rate, table } from "./shared";
@@ -42,14 +43,20 @@ async function once(testCase: ScriptCase, keys: ReturnType<typeof apiKeys>): Pro
     const useNewRouting =
       (request.action === "outline" && outlineVersion === "v4") ||
       (request.action === "script" && request.step === "write" && scriptVersion === "v8") ||
-      (request.action === "script" && request.step === "cases" && annotateVersion === "v1");
+      (request.action === "script" && request.step === "cases" && annotateVersion !== "v0");
     const target = useNewRouting ? managedModel(request.action, request.step) : managedWriter;
     const input = llmRequestSchema.parse({ ...request, settings: { ...baseSettings, ...target } });
     const step = input.action === "outline" ? outlineStep(input, summaryPrompts[outlineVersion])
       : input.action === "script" ? scriptStep(input, scriptPrompts[scriptVersion], annotatePrompts[annotateVersion]) : undefined;
     if (!step || !("settings" in input)) throw new Error("Unexpected request");
     const effort = useNewRouting && "effort" in target ? target.effort : undefined;
-    return (await generate(input.settings, [{ role: "user", text: step.data }], step.instruction, keys, fetch, undefined, effort ? { effort } : undefined)).trim();
+    const format = request.action === "script" && request.step === "cases" && annotateVersion === "v2" ? casesSchemaFormat : undefined;
+    const raw = (await generate(input.settings, [{ role: "user", text: step.data }], step.instruction, keys, fetch, undefined, { ...(effort ? { effort } : {}), ...(format ? { format } : {}) })).trim();
+    if (format && typeof request.text === "string" && raw.startsWith("{")) {
+      const parsed = JSON.parse(raw) as { items?: unknown[] };
+      if (Array.isArray(parsed.items)) return applyWordCases(request.text, parsed.items as any);
+    }
+    return raw;
   };
   const messages = testCase.turns.map((turn, index) => ({ ...turn, id: `m${index}`, final: true, createdAt: "2026-01-01T00:00:00.000Z" }));
   try {

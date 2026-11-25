@@ -73,6 +73,79 @@ const accent = "\u0301";
 // contain them, so they are taken out wherever a script is shown or spoken.
 export const withoutStress = (text: string) => text.replaceAll(accent, "");
 
+// Losslessly map indexed word-level case/stress annotations onto plain text.
+export type WordSpan = { index: number; word: string; start: number; end: number };
+export function scriptWordSpans(plain: string): WordSpan[] {
+  const spans: WordSpan[] = [];
+  for (const match of plain.matchAll(/[\p{L}\p{N}]+(?:[-'’][\p{L}\p{N}]+)*/gu)) {
+    spans.push({ index: spans.length, word: match[0], start: match.index, end: match.index + match[0].length });
+  }
+  return spans;
+}
+
+const caseMarks = new Set(["gen", "dat", "acc", "ins", "pre"]);
+export function applyWordCases(
+  plain: string,
+  items: { index?: unknown; mark?: unknown; stem?: unknown; ending?: unknown }[],
+): string {
+  const spans = scriptWordSpans(plain);
+  const byIndex = new Map<number, { mark: string; stem: string; ending: string }>();
+  for (const item of items) {
+    if (
+      typeof item?.index !== "number" ||
+      !Number.isInteger(item.index) ||
+      typeof item.mark !== "string" ||
+      !caseMarks.has(item.mark) ||
+      byIndex.has(item.index)
+    )
+      continue;
+    byIndex.set(item.index, {
+      mark: item.mark,
+      stem: typeof item.stem === "string" ? item.stem : "",
+      ending: typeof item.ending === "string" ? item.ending : "",
+    });
+  }
+  let out = "";
+  let cursor = 0;
+  for (const span of spans) {
+    out += plain.slice(cursor, span.start);
+    const entry = byIndex.get(span.index);
+    if (!entry) {
+      out += span.word;
+    } else if (entry.stem && entry.ending && entry.stem + entry.ending === span.word) {
+      out += `[${entry.mark}:${entry.stem}|${entry.ending}]`;
+    } else if (entry.ending && entry.ending.length < span.word.length && span.word.endsWith(entry.ending)) {
+      out += `[${entry.mark}:${span.word.slice(0, -entry.ending.length)}|${entry.ending}]`;
+    } else {
+      out += `[${entry.mark}:${span.word}]`;
+    }
+    cursor = span.end;
+  }
+  return out + plain.slice(cursor);
+}
+
+export function applyWordStress(
+  plain: string,
+  items: { index?: unknown; stressed?: unknown }[],
+): string {
+  const spans = scriptWordSpans(plain);
+  const byIndex = new Map<number, string>();
+  for (const item of items) {
+    if (typeof item?.index !== "number" || !Number.isInteger(item.index) || typeof item.stressed !== "string")
+      continue;
+    if (!byIndex.has(item.index)) byIndex.set(item.index, item.stressed);
+  }
+  let out = "";
+  let cursor = 0;
+  for (const span of spans) {
+    out += plain.slice(cursor, span.start);
+    const stressed = byIndex.get(span.index);
+    out += stressed && withoutStress(stressed) === span.word ? stressed : span.word;
+    cursor = span.end;
+  }
+  return out + plain.slice(cursor);
+}
+
 // Lay the separately made case and stress markings over the written script.
 // Each layer is used only where, with its marks removed, it is exactly the
 // script's own text, paragraph by paragraph, so a layer can never change a word.

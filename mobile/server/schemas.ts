@@ -150,3 +150,51 @@ export const naturalTranslateSchemaFormat: JsonSchemaFormat = {
     additionalProperties: false,
   },
 };
+
+export const casesSchemaFormat: JsonSchemaFormat = {
+  name: "script_cases",
+  schema: {
+    type: "object",
+    properties: {
+      items: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: {
+            index: { type: "integer" },
+            mark: { type: "string", enum: ["gen", "dat", "acc", "ins", "pre"] },
+            stem: { type: "string" },
+            ending: { type: "string" },
+          },
+          required: ["index", "mark", "stem", "ending"],
+          additionalProperties: false,
+        },
+      },
+    },
+    required: ["items"],
+    additionalProperties: false,
+  },
+};
+
+export const stressSchemaFormat: JsonSchemaFormat = {
+  name: "script_stress",
+  schema: {
+    type: "object",
+    properties: {
+      items: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: {
+            index: { type: "integer" },
+            stressed: { type: "string" },
+          },
+          required: ["index", "stressed"],
+          additionalProperties: false,
+        },
+      },
+    },
+    required: ["items"],
+    additionalProperties: false,
+  },
+};

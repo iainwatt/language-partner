@@ -20,6 +20,7 @@ import { reviewPromptV0 } from "./review.v0";
 import { reviewPromptV1 } from "./review.v1";
 import { annotateV0 } from "./annotate.v0";
 import { annotateV1 } from "./annotate.v1";
+import { annotateV2 } from "./annotate.v2";
 import { meaningsPromptV0 } from "./meanings.v0";
 import { meaningsPromptV1 } from "./meanings.v1";
 import { restsPromptV0 } from "./rests.v0";
@@ -27,6 +28,7 @@ import { restsPromptV1 } from "./rests.v1";
 import { stepsV0 } from "./steps.v0";
 import { stepsV1 } from "./steps.v1";
 import { stepsV2 } from "./steps.v2";
+import { stepsV3 } from "./steps.v3";
 import { summaryV0 } from "./summary.v0";
 import { summaryV1 } from "./summary.v1";
 import { summaryV2 } from "./summary.v2";
@@ -83,8 +85,8 @@ export const scriptPromptVersion: keyof typeof scriptPrompts = "v8";
 export const scriptPrompt = scriptPrompts[scriptPromptVersion];
 
 // Marks added to the finished script, one kind per call: case endings and stress.
-export const annotatePrompts = { v0: annotateV0, v1: annotateV1 };
-export const annotatePromptVersion: keyof typeof annotatePrompts = "v1";
+export const annotatePrompts = { v0: annotateV0, v1: annotateV1, v2: annotateV2 };
+export const annotatePromptVersion: keyof typeof annotatePrompts = "v2";
 export const annotatePrompt = annotatePrompts[annotatePromptVersion];
 
 // What the saved words in a script mean where they stand, for the practice prompter.
@@ -93,8 +95,8 @@ export const meaningsPromptVersion: keyof typeof meaningsPrompts = "v1";
 export const meaningsPrompt = meaningsPrompts[meaningsPromptVersion];
 
 // The small jobs done beside a conversation, each as a request of its own.
-export const stepPrompts = { v0: stepsV0, v1: stepsV1, v2: stepsV2 };
-export const stepPromptVersion: keyof typeof stepPrompts = "v2";
+export const stepPrompts = { v0: stepsV0, v1: stepsV1, v2: stepsV2, v3: stepsV3 };
+export const stepPromptVersion: keyof typeof stepPrompts = "v3";
 export const stepPrompt = stepPrompts[stepPromptVersion];
 
 // The end of each sentence in the learner's own language, for the practice prompter.

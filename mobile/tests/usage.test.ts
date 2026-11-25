@@ -128,3 +128,24 @@ test("videoSummary calls are metered via observeUsage in both questions and gene
   assert.equal(observedGenerate[1].step, undefined);
   assert.equal(observedGenerate[1].tokens?.input, 100);
 });
+
+test("nested videoSummary calls enforce an overall deadline so caller timeouts cannot be exceeded", async () => {
+  const settings = { ...initialSnapshot(false).settings, mode: "api" as const };
+  await assert.rejects(
+    executeLlm(
+      llmRequestSchema.parse({
+        action: "generate",
+        settings,
+        messages: [{ id: "m1", role: "user", text: "Start.", final: true, createdAt: "2026-11-25T00:00:00Z" }],
+        video: { youtubeId: "pyqW-FJwKDE", title: "Test", transcript: "Привет!" },
+      }) as any,
+      { openai: "test-key" },
+      (async (_url: string, options?: RequestInit) => {
+        // Verify an AbortSignal is passed and reject with TimeoutError when videoSummary times out.
+        assert.ok(options?.signal);
+        throw new DOMException("Timed out", "TimeoutError");
+      }) as typeof fetch,
+    ),
+    (err: unknown) => err instanceof Error && err.name === "TimeoutError",
+  );
+});
