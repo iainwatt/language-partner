@@ -6,6 +6,7 @@ import { chatPromptV4 } from "./chat.v4";
 import { chatPromptV5 } from "./chat.v5";
 import { chatPromptV6 } from "./chat.v6";
 import { chatPromptV7 } from "./chat.v7";
+import { chatPromptV8 } from "./chat.v8";
 import { scriptPromptV1 } from "./script.v1";
 import { scriptPromptV2 } from "./script.v2";
 import { scriptPromptV3 } from "./script.v3";
@@ -45,6 +46,7 @@ export const chatPrompts = {
   v5: chatPromptV5,
   v6: chatPromptV6,
   v7: chatPromptV7,
+  v8: chatPromptV8,
 };
 export type ChatPromptVersion = keyof typeof chatPrompts;
 
@@ -52,7 +54,9 @@ export type ChatPromptVersion = keyof typeof chatPrompts;
 // v6 added rules against echoing and for supplying a word. They were patches
 // for trouble the surrounding instructions had caused, and are not used.
 // v7 keeps v5's wording with Structured Outputs (JSON schema) and effort "low".
-export const chatPromptVersion: ChatPromptVersion = "v7";
+// v8 removes the whole-sentence "natural" block from corrections, caps fixes at 5,
+// and keeps optional reasons brief in the learner's native language.
+export const chatPromptVersion: ChatPromptVersion = "v8";
 export const chatPrompt = chatPrompts[chatPromptVersion];
 
 // The conversation script. First a summary in the learner's own language,

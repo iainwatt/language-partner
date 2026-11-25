@@ -66,7 +66,7 @@ import {
   type GrammarTopic,
 } from "./src/core/grammar";
 import { addTalkTime, assignEarlierTalkTime } from "./src/core/stats";
-import { spokenInTarget } from "./src/core/speechText";
+import { spokenInTarget, spokenMessage } from "./src/core/speechText";
 import { writingSystem } from "./src/core/domain";
 import { grammarAccentRanges } from "./src/core/grammarAccent";
 import { audio } from "./src/services/nativeAudio";
@@ -187,10 +187,6 @@ function AccountGate() {
   if ((user && !user.emailVerified) || (!user && !guest)) return <AuthScreen />;
   return <LanguagePartner key={user?.uid ?? "guest"} />;
 }
-// The reply is spoken first, then the corrections shown beneath it. Only the
-// language being learned is said aloud: a translation under a line is for reading.
-const spokenMessage = (text: string, corrections: string | undefined, languages: { target: string; native: string }) =>
-  spokenInTarget(corrections ? `${text}\n\n${corrections}` : text, languages.target, languages.native);
 function LanguagePartner() {
   const [notice, setNotice] = useState("");
   const report = useCallback((message: string) => setNotice(message), []);
@@ -710,7 +706,7 @@ function LanguagePartner() {
           : { ...item, questions: item.questions?.map((question) => (question.phrase === asked.phrase ? { ...question, times: (question.times ?? 0) + 1 } : question)) }) }));
       afterReply(conversation, replyId, answer);
       if (spoke.current && settings.autoSpeak)
-        await audio.play("chat", spokenMessage(answer, corrections, conversation), conversation.target);
+        await audio.play("chat", spokenMessage(answer, conversation), conversation.target);
       spoke.current = false;
     } catch (e: any) {
       if (isPaywallError(e)) openPaywall();
@@ -860,7 +856,7 @@ function LanguagePartner() {
         }] } : item,
       ) }));
       afterReply(next, openingId, answer);
-      if (openingSettings.autoSpeak) await audio.play("chat", spokenMessage(answer, undefined, next), next.target);
+      if (openingSettings.autoSpeak) await audio.play("chat", spokenMessage(answer, next), next.target);
     } catch (error: any) {
       if (isPaywallError(error)) openPaywall();
       else report(`Your partner could not start the discussion: ${error.message ?? String(error)}. Say something to begin.`);
@@ -893,7 +889,7 @@ function LanguagePartner() {
       }] } : item,
     ) }));
     setNotice("");
-    if (openingSettings.autoSpeak) await audio.play("chat", spokenMessage(answer, undefined, next), next.target);
+    if (openingSettings.autoSpeak) await audio.play("chat", spokenMessage(answer, next), next.target);
   }
   async function startGrammar(topic: GrammarTopic) {
     if (trial.blocked && data!.settings.mode === "api") { openPaywall(); return; }
@@ -965,7 +961,7 @@ function LanguagePartner() {
     }));
     setNotice("");
     if (openingSettings.autoSpeak)
-      await audio.play("chat", spokenMessage(answer, undefined, next), next.target);
+      await audio.play("chat", spokenMessage(answer, next), next.target);
   }
   async function openConversation(id: string) {
     preserveTranscriptPosition.current = false;
@@ -1389,7 +1385,7 @@ function LanguagePartner() {
                         onPress={() =>
                           void audio.play(
                             "chat",
-                            spokenMessage(message.text, message.corrections, conversation),
+                            spokenMessage(message.text, conversation),
                             conversation.target,
                           )
                         }

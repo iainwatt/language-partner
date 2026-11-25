@@ -69,3 +69,7 @@ export function spokenInTarget(text: string, target: string, native: string): st
     .replace(/\n{3,}/g, "\n\n")
     .trim();
 }
+
+// Only the partner's reply is spoken aloud; corrections and translations stay on screen only.
+export const spokenMessage = (text: string, languages: { target: string; native: string }) =>
+  spokenInTarget(text, languages.target, languages.native);
