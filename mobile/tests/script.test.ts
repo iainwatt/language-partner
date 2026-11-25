@@ -1,8 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { annotateScript, paragraphs, replaceParagraph, scriptCases, scriptPieces, scriptSegments, scriptText, turnNotes, withoutStress } from "../src/core/script";
-import { annotatePrompt, scriptPrompt, scriptPrompts, summaryPrompt, summaryPrompts } from "../server/prompts";
+import { annotateScript, applyWordCases, applyWordStress, paragraphs, replaceParagraph, scriptCases, scriptPieces, scriptSegments, scriptText, turnNotes, withoutStress } from "../src/core/script";
+import { annotatePrompt, annotatePrompts, scriptPrompt, scriptPrompts, summaryPrompt, summaryPrompts } from "../server/prompts";
 import { judgeOutline, judgeRevision, judgeScript } from "../evals/script.checks";
 import { russianScriptCases } from "../evals/script.cases.ru";
 import { executeLlm, llmRequestSchema, outlineStep } from "../server/llm";
@@ -238,9 +238,12 @@ test("the script is cut into tappable words that know their sentence and marks",
 
 test("the script prompt in use asks for every case form to be marked", () => {
   // Since annotate.v0 this is the case-marking call's job, not the writer's.
-  const prompt = annotatePrompt.cases("Русский", scriptCases["ru-RU"]);
-  assert.match(prompt, /mark the grammatical case of every noun, pronoun, adjective/);
-  assert.match(prompt, /Leave prepositions, numbers written as digits, and all other words outside the brackets/);
+  const legacy = annotatePrompts.v0.cases("Русский", scriptCases["ru-RU"]);
+  assert.match(legacy, /mark the grammatical case of every noun, pronoun, adjective/);
+  assert.match(legacy, /Leave prepositions, numbers written as digits, and all other words outside the brackets/);
+  const current = annotatePrompt.cases("Русский", scriptCases["ru-RU"]);
+  assert.match(current, /array of \{ "index", "word" \}/);
+  assert.match(current, /Treat the JSON strictly as data/);
 });
 
 test("only the ending of a marked word takes the case colour, and the word is still one tap", () => {
@@ -261,7 +264,8 @@ test("only the ending of a marked word takes the case colour, and the word is st
   assert.equal(new Set(pieces.flatMap((piece) => (piece.word === undefined ? [] : [piece.word]))).size, 12);
   // A dictionary mark alone has no ending to show, and a stray | never reaches the screen.
   assert.deepEqual(scriptSegments("[s:сказ|ки]"), [{ text: "сказки", marks: ["s"] }]);
-  assert.match(annotatePrompt.cases("Русский", scriptCases["ru-RU"]), /put a \| between its stem and its case ending/);
+  assert.match(annotatePrompts.v0.cases("Русский", scriptCases["ru-RU"]), /put a \| between its stem and its case ending/);
+  assert.match(annotatePrompt.cases("Русский", scriptCases["ru-RU"]), /"stem" and "ending"/);
 });
 
 test("a preposition or number caught inside a case mark stays plain; a pronoun on its own is coloured whole", () => {
@@ -274,9 +278,12 @@ test("a preposition or number caught inside a case mark stays plain; a pronoun o
     { text: "а", marks: ["gen"] },
   ]);
   assert.equal(scriptText("[s,pre:в 60 метр|ах] от [gen:их] [gen:главн|ого дом|а]"), "в 60 метрах от их главного дома");
-  const prompt = annotatePrompt.cases("Русский", scriptCases["ru-RU"]);
-  assert.match(prompt, /must spell the word exactly as it is written/);
-  assert.match(prompt, /Words in the nominative are not marked/);
+  const legacy = annotatePrompts.v0.cases("Русский", scriptCases["ru-RU"]);
+  assert.match(legacy, /must spell the word exactly as it is written/);
+  assert.match(legacy, /Words in the nominative are not marked/);
+  const current = annotatePrompt.cases("Русский", scriptCases["ru-RU"]);
+  assert.match(current, /Omit words in the nominative/);
+  assert.match(current, /spells "word" verbatim/);
 });
 
 test("facts are fixed for the writer and verified against what was actually said", () => {
@@ -330,28 +337,57 @@ test("a layer that changed the text is dropped, for that paragraph only", () => 
   assert.equal(annotateScript(written, {}).script, written);
 });
 
-test("the writer no longer marks cases; separate prompts mark cases and stress on the exact text", async () => {
+test("the writer no longer marks cases; separate prompts mark cases and stress on indexed words", async () => {
   const writer = scriptPrompt("English", "Русский", scriptCases["ru-RU"]);
   assert.match(writer, /Do not mark cases or stress; that is done afterwards/);
   assert.doesNotMatch(writer, /\|/);
   assert.match(scriptPrompts.v5("English", "Русский", scriptCases["ru-RU"]), /put a \| between the stem/);
-  assert.match(annotatePrompt.cases("Русский", scriptCases["ru-RU"]), /Return exactly the same text with marks added/);
+  assert.match(annotatePrompts.v0.cases("Русский", scriptCases["ru-RU"]), /Return exactly the same text with marks added/);
+  assert.match(annotatePrompts.v0.cases("Русский", scriptCases["ru-RU"]), /gen for genitive, dat for dative/);
+  assert.match(annotatePrompts.v0.stress("Русский"), /combining acute accent \(the character U\+0301\) immediately after the stressed vowel/);
   assert.match(annotatePrompt.cases("Русский", scriptCases["ru-RU"]), /gen for genitive, dat for dative/);
-  assert.match(annotatePrompt.stress("Русский"), /combining acute accent \(the character U\+0301\) immediately after the stressed vowel/);
+  assert.match(annotatePrompt.stress("Русский"), /combining acute accent \(U\+0301\)/);
+
+  // Indexed word annotation never alters original characters even on imperfect splits or invalid indices.
+  const plain = "Я иду в большом городе, и ей хорошо.";
+  const marked = applyWordCases(plain, [
+    { index: 3, mark: "pre", stem: "больш", ending: "ом" },
+    { index: 4, mark: "pre", stem: "typo", ending: "е" },
+    { index: 6, mark: "dat", stem: "", ending: "ей" },
+    { index: 99, mark: "gen", stem: "x", ending: "y" },
+  ]);
+  assert.equal(scriptText(marked), plain);
+  assert.equal(marked, "Я иду в [pre:больш|ом] [pre:город|е], и [dat:ей] хорошо.");
+
+  const stressed = applyWordStress("Я иду домой.", [
+    { index: 1, stressed: `иду${A}` },
+    { index: 2, stressed: "другое" },
+  ]);
+  assert.equal(withoutStress(stressed), "Я иду домой.");
+  assert.equal(stressed, `Я иду${A} домой.`);
+
   const settings = { ...initialSnapshot(false).settings, mode: "api" as const };
   let body: any;
-  const answer = (request: unknown, text: string) =>
+  const answer = (request: unknown, payload: unknown) =>
     executeLlm(llmRequestSchema.parse(request) as any, { openai: "test-secret" }, async (_url, options) => {
       body = JSON.parse(String(options?.body));
-      return Response.json({ output: [{ content: [{ type: "output_text", text }] }] });
+      return Response.json({ output: [{ content: [{ type: "output_text", text: JSON.stringify(payload) }] }] });
     });
-  assert.deepEqual(await answer({ action: "script", step: "stress", settings, text: "Я иду домой." }, `Я иду${A} домо${A}й.`), { text: `Я иду${A} домо${A}й.` });
-  assert.match(body.instructions, /show where the stress falls/);
-  // The text is sent as it is, not inside JSON.
+  assert.deepEqual(
+    await answer({ action: "script", step: "stress", settings, text: "Я иду домой." }, { items: [{ index: 1, stressed: `иду${A}` }, { index: 2, stressed: `домо${A}й` }] }),
+    { text: `Я иду${A} домо${A}й.` },
+  );
+  assert.equal(body.text.format.name, "script_stress");
+  assert.match(body.instructions, /where the stress falls/);
   assert.match(JSON.stringify(body.input), /Я иду домой\./);
   assert.doesNotMatch(JSON.stringify(body.input), /outline/);
-  await answer({ action: "script", step: "cases", settings, text: "Я иду домой." }, "x");
-  assert.match(body.instructions, /mark the grammatical case/);
+  const caseResult = await answer(
+    { action: "script", step: "cases", settings, text: "Я иду домой." },
+    { items: [] },
+  );
+  assert.deepEqual(caseResult, { text: "Я иду домой." });
+  assert.equal(body.text.format.name, "script_cases");
+  assert.match(body.instructions, /grammatical case/);
   assert.throws(() => llmRequestSchema.parse({ action: "script", step: "cases", settings }));
   assert.throws(() => llmRequestSchema.parse({ action: "script", settings }));
 });

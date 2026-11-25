@@ -28,6 +28,8 @@ export type GenerateOptions = {
   fallbacks?: readonly ModelTarget[];
   allowFallback?: boolean;
   usageStep?: string;
+  timeoutMs?: number;
+  deadlineMs?: number;
 };
 
 export const configured = (keys: ProviderKeys) => ({
@@ -182,11 +184,16 @@ async function attemptGenerate(
     effort: options?.effort,
     format: options?.format,
   });
+  const defaultTimeout = model === "gpt-5.4" ? 160000 : 55000;
+  const requestedTimeout = options?.timeoutMs ?? defaultTimeout;
+  const remaining = options?.deadlineMs !== undefined ? options.deadlineMs - Date.now() : requestedTimeout;
+  if (remaining <= 0) throw new DOMException("The AI request deadline was exceeded.", "TimeoutError");
+  const timeout = Math.min(requestedTimeout, remaining);
   const response = await transport(spec.url, {
     method: "POST",
     headers: { "Content-Type": "application/json", ...spec.headers },
     body: JSON.stringify(spec.body),
-    signal: AbortSignal.timeout(model === "gpt-5.4" ? 160000 : 55000),
+    signal: AbortSignal.timeout(timeout),
   });
   if (!response.ok) throw await providerRequestError(provider, response);
   const payload = await response.json();
