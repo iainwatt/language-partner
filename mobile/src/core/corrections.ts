@@ -126,6 +126,8 @@ export function knownHints(hints: string, saved: { phrase: string }[]): string {
     .join("\n");
 }
 
+const MAX_SHOWN_CORRECTIONS = 5;
+
 // Parse either Structured Output JSON (chat.v7+) or legacy tagged text (chat.v0-v6).
 export function parseChatReply(raw: string): SplitReply {
   const trimmed = raw.trim();
@@ -136,9 +138,8 @@ export function parseChatReply(raw: string): SplitReply {
         const corrections: Correction[] = [];
         const shownLines: string[] = [];
         const natural = typeof data.natural === "string" && data.natural.trim() ? limit(data.natural) : undefined;
-        if (natural) shownLines.push(natural);
         for (const item of Array.isArray(data.corrections) ? data.corrections : []) {
-          if (corrections.length >= 20) break;
+          if (shownLines.length >= MAX_SHOWN_CORRECTIONS) break;
           const said = typeof item?.said === "string" ? limit(item.said) : "";
           const better = typeof item?.better === "string" ? limit(item.better.replace(/\?$/, "")) : "";
           const note = typeof item?.reason === "string" && item.reason.trim() ? limit(item.reason) : undefined;

@@ -52,7 +52,7 @@ async function once(testCase: EvalCase, version: ChatPromptVersion, apiKeys: Ret
     })),
   });
   if (request.action !== "generate") throw new Error("Expected a chat request");
-  const options = version === "v7" ? { effort: "low" as const, format: chatSchemaFormat } : undefined;
+  const options = version === "v7" || version === "v8" ? { effort: "low" as const, format: chatSchemaFormat } : undefined;
   return generate(request.settings, request.messages, chatInstruction(request, chatPrompts[version]), apiKeys, fetch, undefined, options);
 }
 

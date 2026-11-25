@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { prepareSpeechText, stripEmphasis } from "../src/core/speechText";
+import { prepareSpeechText, spokenMessage, stripEmphasis } from "../src/core/speechText";
 
 test("Russian quotation marks and ASCII quote wrappers do not reach speech", () => {
   for (const phrase of [
@@ -76,4 +76,19 @@ test("only the language being learned is said aloud when a reply carries both", 
   // Where both languages share a script they cannot be told apart, and nothing is dropped.
   assert.equal(spokenInTarget("¿Te gustó?\nDid you like it?", "es-ES", "en-US"), "¿Te gustó?\nDid you like it?");
   assert.equal(spokenInTarget("ビデオは好きでしたか？\nDid you like the video?", "ja-JP", "en-US"), "ビデオは好きでしたか？");
+});
+
+test("spokenMessage speaks only the partner's reply and never reads corrections aloud", () => {
+  const message = {
+    text: "Понимаю. А что тебе помогает самому успокоиться?",
+    corrections: "обнимать → обнять её (more natural)\nсохранять спокойствие сама → сохранять спокойствие сам (male form)",
+  };
+  const spoken = spokenMessage(message.text, { target: "ru-RU", native: "en-US" });
+  assert.equal(spoken, "Понимаю. А что тебе помогает самому успокоиться?");
+  assert.doesNotMatch(spoken, /обнимать|сохранять|→/);
+  // When reply includes a native translation line, only target-language speech remains.
+  assert.equal(
+    spokenMessage("Привет!\nHi there!", { target: "ru-RU", native: "en-US" }),
+    "Привет!",
+  );
 });

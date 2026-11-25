@@ -40,9 +40,11 @@ test("a reply without tags, or with an unclosed one, is never lost", () => {
 });
 
 test("the prompt in use tags corrections and hidden slips; earlier versions stay as shipped", () => {
-  // v7 uses Structured Outputs; v5/v6 XML-tagged prompts remain frozen as shipped.
-  assert.equal(chatPromptVersion, "v7");
+  // v8 uses Structured Outputs with minimal corrections capped at 5; v5-v7 remain frozen as shipped.
+  assert.equal(chatPromptVersion, "v8");
   assert.match(chatPrompt("English", "Русский"), /Return JSON matching the schema/);
+  assert.match(chatPrompt("English", "Русский"), /Always set "natural" to null/);
+  assert.match(chatPrompt("English", "Русский"), /at most 5 items to "corrections"/);
   const prompt = chatPrompts.v5("English", "Русский");
   assert.match(prompt, /Converse in Русский/);
   assert.match(prompt, /<corrections>\nthe learner's words → the corrected words \(short reason\)\n<\/corrections>/);
@@ -53,27 +55,40 @@ test("the prompt in use tags corrections and hidden slips; earlier versions stay
   assert.match(chatPrompts.v1("English", "Русский"), /<log>/);
 });
 
-test("structured JSON chat replies parse into the same SplitReply shape and work with eval judge", () => {
+test("structured JSON chat replies omit natural rephrasing from shown corrections and cap fixes at 5", () => {
   const json = JSON.stringify({
     reply: "Понимаю! А какие сказки она любит?",
     natural: "Она постоянно забирается на дерево, и я рассказываю ей сказки.",
-    corrections: [{ said: "рассказываю её", better: "рассказываю ей", reason: "дательный падеж" }],
+    corrections: [
+      { said: "рассказываю её", better: "рассказываю ей", reason: "dative case" },
+      { said: "1", better: "a", reason: null },
+      { said: "2", better: "b", reason: null },
+      { said: "3", better: "c", reason: null },
+      { said: "4", better: "d", reason: null },
+      { said: "5", better: "e", reason: null },
+    ],
     misheard: [{ recognised: "sky", meant: "Скай" }],
     meant: "She keeps climbing trees and I tell her fairy tales.",
     speaker: "male",
   });
-  assert.deepEqual(parseChatReply(json), {
+  const parsed = parseChatReply(json);
+  assert.deepEqual(parsed, {
     text: "Понимаю! А какие сказки она любит?",
-    shown: "Она постоянно забирается на дерево, и я рассказываю ей сказки.\nрассказываю её → рассказываю ей (дательный падеж)",
+    shown: "рассказываю её → рассказываю ей (dative case)\n1 → a\n2 → b\n3 → c\n4 → d",
     natural: "Она постоянно забирается на дерево, и я рассказываю ей сказки.",
     meant: "She keeps climbing trees and I tell her fairy tales.",
     speaker: "male",
     corrections: [
-      { said: "рассказываю её", better: "рассказываю ей", note: "дательный падеж", misheard: false },
+      { said: "рассказываю её", better: "рассказываю ей", note: "dative case", misheard: false },
+      { said: "1", better: "a", misheard: false },
+      { said: "2", better: "b", misheard: false },
+      { said: "3", better: "c", misheard: false },
+      { said: "4", better: "d", misheard: false },
       { said: "sky", better: "Скай", misheard: true },
     ],
     position: "last",
   });
+  assert.equal(parsed.shown.split("\n").length, 5);
   assert.equal(judge(find("error-dative"), json).checks["error corrected"], true);
   assert.equal(judge(find("slip-name"), JSON.stringify({
     reply: "Три года — чудесный возраст! Какая сказка у Скай любимая?",
